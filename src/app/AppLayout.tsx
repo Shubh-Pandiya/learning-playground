@@ -15,7 +15,7 @@ const navItems = [
 export function AppLayout() {
   return (
     <div className="flex min-h-screen flex-col [--header-h:3.5rem]">
-      <header className="sticky top-0 z-40 h-14 border-b border-line/70 bg-paper/85 backdrop-blur">
+      <header className="sticky top-0 z-40 h-14 border-b border-line/70 bg-paper/95 backdrop-blur">
         <div className="mx-auto flex h-full max-w-[1600px] items-center gap-6 px-5">
           <Link to="/" className="font-mono text-sm font-semibold tracking-tight">
             learning<span className="text-accent">/</span>playground
