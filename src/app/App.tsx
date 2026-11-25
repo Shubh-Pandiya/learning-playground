@@ -1,12 +1,11 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 import { Route, Routes } from 'react-router-dom';
 import { useApplyTheme } from '@/shared/theme/theme';
 import { AppLayout } from './AppLayout';
+import { allModules } from './modules';
 import { HomePage } from './pages/HomePage';
 import { NotFoundPage } from './pages/NotFoundPage';
 
-const DsaModule = lazy(() => import('@/modules/dsa'));
-const SystemDesignModule = lazy(() => import('@/modules/system-design'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 
 function RouteFallback() {
@@ -17,34 +16,33 @@ function RouteFallback() {
   );
 }
 
+function Lazy({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<RouteFallback />}>{children}</Suspense>;
+}
+
 export default function App() {
   useApplyTheme();
   return (
     <Routes>
       <Route element={<AppLayout />}>
         <Route index element={<HomePage />} />
-        <Route
-          path="dsa/*"
-          element={
-            <Suspense fallback={<RouteFallback />}>
-              <DsaModule />
-            </Suspense>
-          }
-        />
-        <Route
-          path="system-design/*"
-          element={
-            <Suspense fallback={<RouteFallback />}>
-              <SystemDesignModule />
-            </Suspense>
-          }
-        />
+        {allModules.map(({ id, path, Component }) => (
+          <Route
+            key={id}
+            path={`${path.slice(1)}/*`}
+            element={
+              <Lazy>
+                <Component />
+              </Lazy>
+            }
+          />
+        ))}
         <Route
           path="settings"
           element={
-            <Suspense fallback={<RouteFallback />}>
+            <Lazy>
               <SettingsPage />
-            </Suspense>
+            </Lazy>
           }
         />
         <Route path="*" element={<NotFoundPage />} />
