@@ -13,6 +13,14 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  // PGlite (Postgres in WASM) loads its .wasm/.data assets relative to its own module URL;
+  // pre-bundling would break those URLs.
+  optimizeDeps: {
+    exclude: ['@electric-sql/pglite'],
+  },
+  worker: {
+    format: 'es',
+  },
   server: {
     host: 'localhost',
     port: PORT,
