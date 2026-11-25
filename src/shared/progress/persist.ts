@@ -2,7 +2,7 @@ import { create, type StateCreator } from 'zustand';
 import { persist, createJSONStorage, type PersistOptions } from 'zustand/middleware';
 
 /** Storage namespaces. Every persisted key is `lp:<namespace>:<name>`. */
-export type ProgressNamespace = 'dsa' | 'sd' | 'kafka' | 'sql' | 'dm' | 'app';
+export type ProgressNamespace = 'dsa' | 'sd' | 'kafka' | 'sql' | 'dm' | 'desd' | 'app';
 
 export const STORAGE_PREFIX = 'lp:';
 

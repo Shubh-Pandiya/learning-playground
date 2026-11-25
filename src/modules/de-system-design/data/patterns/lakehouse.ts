@@ -1,0 +1,863 @@
+import type { Pattern } from '../../types';
+import { E, N, W, X, req } from './dsl';
+
+/* ------------------------------------------------------------------ */
+/* 4. CDC into the lakehouse                                           */
+/* ------------------------------------------------------------------ */
+
+export const cdcLakehouse: Pattern = {
+  id: 'cdc-lakehouse',
+  num: 4,
+  title: 'CDC into the lakehouse',
+  group: 'Lakehouse',
+  tagline: 'Read the database’s own change log, stream every insert, update and delete in order per key, and MERGE them into an open table, minutes behind production and with no load on it.',
+  minutes: 15,
+  level: 'Advanced',
+  signals: [
+    '"replicate Postgres/MySQL into the lake"',
+    '"the nightly export takes 6 hours and hammers the primary"',
+    '"we miss deletes"',
+    '"analytics needs data within minutes, not tomorrow"',
+    '"the app publishes to Kafka after it commits"',
+  ],
+  learn: [
+    'Log-based CDC (WAL/binlog) vs query-based polling, and why polling misses deletes',
+    'Why dual writes are inconsistent, and the transactional outbox alternative',
+    'Initial snapshot plus streaming, ordering per key, tombstones and MERGE deletes',
+    'Schema evolution through a registry, and compaction for streaming upserts',
+  ],
+  realWorld: [
+    { who: 'Netflix', how: 'Built DBLog: log-based CDC with interleaved incremental snapshots, so full-table captures never pause the change stream or lock the source.' },
+    { who: 'Uber', how: 'Created Apache Hudi to upsert database changelogs into the data lake incrementally instead of rewriting whole tables every few hours.' },
+    { who: 'Shopify', how: 'Streams MySQL changes through Debezium and Kafka Connect into Kafka, replacing query-based batch extraction for its data platform.' },
+  ],
+  scenario: {
+    id: 'cdc-orders-lake',
+    title: 'Orders replicated into Iceberg in minutes',
+    context:
+      'An online retailer’s orders, order lines and shipments live in a busy Postgres primary: about 20,000 row changes/s at peak, including status updates and GDPR deletes. Analysts query an Iceberg copy through Trino. Today a cron job polls `WHERE updated_at > :last` every hour: it misses hard deletes, drops rows whose clock skewed, and its full refreshes slow checkout. The business wants the lake within 5 minutes of production, exact, with deletes, and safe from upstream schema changes.',
+    workload: { eps: 20000, queryQps: 5, late: 0.01, dup: 0.02, unit: 'change' },
+    requirements: [
+      req.noOltp(),
+      req.fresh(300, 'Polling and batch jobs add an hour. Stream changes from the log and commit to the table every minute.'),
+      req.exactlyOnce('Connectors restart and Kafka redelivers. MERGE by primary key, ordered by log position, so a replayed change is a no-op.'),
+      req.schemaSafe('A dropped or retyped column must be caught before it breaks the table. Register schemas on the change topics.'),
+      req.queryP99(5000, 'Minute-level MERGE commits create many small files and delete files. Something must compact them.'),
+      req.chaos('outage', 'A source outage or connector restart ends complete, just late', 'Read from a durable position in the WAL/binlog (a replication slot) and resume from the stored offset.'),
+      req.noLoss(),
+    ],
+    palette: ['app-db', 'cdc', 'full-dump', 'cron-script', 'dual-write', 'kafka', 'schema-registry', 'flink', 'spark-ss', 'lakehouse', 'compaction', 'trino', 'bi'],
+    reference: {
+      nodes: [
+        N('db', 'app-db', X[0], 140, 'Postgres primary with logical replication (`wal_level=logical`) and a replication slot for the connector.'),
+        N('cdc', 'cdc', X[1], 140, 'Debezium Postgres connector: decodes the WAL into one change event per row (before, after, op, LSN, tx id). Takes an incremental snapshot first, then streams.', { label: 'Debezium' }),
+        N('kafka', 'kafka', X[2], 140, 'One topic per table, keyed by primary key, so all changes to an order stay in one partition, in commit order. Compacted topics can keep the latest row per key.', { count: 3 }),
+        N('sr', 'schema-registry', X[2], 0, 'Avro schemas for each table’s change events, with BACKWARD compatibility: added nullable columns pass, dropped required ones are rejected.'),
+        N('flink', 'flink', X[3], 140, 'Applies changes per key in LSN order and writes to Iceberg each checkpoint (~60 s): upserts as equality deletes plus inserts, deletes as deletes. Commits are tied to checkpoints, so exactly once.', { count: 2 }),
+        N('lake', 'lakehouse', X[4], 140, 'Iceberg `orders` tables in merge-on-read mode with format v2 row-level deletes. Every commit is a snapshot.', { label: 'Iceberg · orders' }),
+        N('comp', 'compaction', X[4], 0, 'Hourly `rewrite_data_files` (folding in delete files) and daily `expire_snapshots`.'),
+        N('trino', 'trino', X[5], 140, 'Analyst SQL over the current snapshot.'),
+        N('bi', 'bi', X[6], 140, 'Order and fulfilment dashboards.'),
+      ],
+      edges: [
+        E('db', 'cdc', 'Reads the WAL through a replication slot: no queries against the tables.'),
+        E('cdc', 'kafka', 'Key = primary key; partition order = commit order per row.'),
+        E('sr', 'kafka', 'Every change event is serialised against a registered, compatible schema.'),
+        E('kafka', 'flink'),
+        E('flink', 'lake', 'MERGE by key, deletes included; commit per checkpoint.'),
+        E('comp', 'lake', 'Merges small data files and delete files into large ones.'),
+        E('lake', 'trino'),
+        E('trino', 'bi'),
+      ],
+    },
+    wrong: {
+      'dual-write': W.dualWrite,
+      'full-dump': W.fullDump,
+      'cron-script': W.cronScript,
+    },
+    alt: {
+      'spark-ss': 'Spark Structured Streaming with `foreachBatch` + MERGE INTO (Delta or Iceberg) is the common alternative. Micro-batches add ~30 s to 1 min, still well within 5 minutes.',
+    },
+  },
+  extras: {
+    nodes: [
+      N('poll', 'cron-script', X[2], 300, 'Hourly `SELECT * FROM orders WHERE updated_at > :last_run` and append the result.', { label: 'Polling job' }),
+      N('dw', 'dual-write', X[1], 300, 'Checkout code commits to Postgres, then publishes an `OrderUpdated` event to Kafka.', { label: 'App publishes after commit' }),
+    ],
+    edges: [E('db', 'poll'), E('poll', 'lake'), E('db', 'dw'), E('dw', 'kafka')],
+  },
+  guided: [
+    {
+      title: 'Polling with `updated_at`',
+      tag: 'problem',
+      body: [
+        'The obvious first try: every hour, `SELECT * FROM orders WHERE updated_at > :last_run`, and append the rows to the lake. This is **query-based CDC**.',
+        'It sees only the *current* state of rows that still exist. A row deleted since the last run simply isn’t returned. Two updates within the hour collapse into one. Rows whose `updated_at` wasn’t bumped (a trigger missing, a bulk `UPDATE` that forgot it) are never seen. And every poll is a range scan on the primary.',
+      ],
+      add: ['db', 'poll', 'lake', 'trino', 'bi'],
+      chaos: 'replay',
+      predict: {
+        question: 'A customer exercises their right to erasure, and support hard-deletes their orders. What does the lake show after the next poll?',
+        options: ['The orders disappear', 'The orders are still there: a deleted row matches no query', 'The orders are marked deleted', 'The poll fails'],
+        answer: 1,
+        explain: 'Query-based CDC can’t see deletes unless the app soft-deletes. Hard deletes leave orphans in the lake forever, which is a compliance problem, not just an analytics one.',
+      },
+    },
+    {
+      title: 'Dual writes from the app',
+      tag: 'failure',
+      body: [
+        'Next idea: the checkout service writes to Postgres, then publishes an `OrderUpdated` event to Kafka, and a stream job writes it to the lake.',
+        'Two writes to two systems are not atomic. If the process dies between the commit and the publish, the event is lost; if the publish succeeds but the transaction rolls back, Kafka has an order that never existed. Under concurrency the two systems can also see the updates in different orders.',
+      ],
+      add: ['dw', 'kafka', 'flink'],
+      remove: ['poll'],
+      chaos: 'crash',
+      predict: {
+        question: 'The checkout pod is OOM-killed right after `COMMIT`, before `producer.send()`. What happens?',
+        options: ['Kafka retries the send', 'The order exists in Postgres but never reaches the lake', 'Postgres rolls back', 'Flink notices the gap'],
+        answer: 1,
+        explain: 'Nothing links the two writes, so nothing can detect or repair the gap. The fix is a single source of truth: the database’s own log, or a transactional outbox table written in the same transaction and then captured by CDC.',
+      },
+      keyIdea: 'Never write to two systems and hope. Write once, to the database, and derive the stream from its commit log.',
+    },
+    {
+      title: 'Log-based CDC',
+      tag: 'technique',
+      body: [
+        'Every committed change is already in the database’s write-ahead log (Postgres WAL, MySQL binlog). **Debezium** reads it through a replication slot and emits one event per row change: `before`, `after`, `op` (c/u/d), the LSN and the transaction id.',
+        'It sees every change, including deletes and intermediate updates, in commit order, with no queries against the tables. If the connector stops, the slot remembers its position and it resumes from there.',
+        'The flip side: a replication slot makes Postgres **retain WAL** until the connector confirms it. A connector down for a day can fill the primary’s disk. Monitor slot lag and cap it with `max_slot_wal_keep_size`.',
+      ],
+      add: ['cdc'],
+      remove: ['dw'],
+      chaos: 'outage',
+      keyIdea: 'Log-based CDC is the database telling you what changed, in order. Query-based CDC is you guessing from the current state.',
+    },
+    {
+      title: 'Snapshot, then stream',
+      tag: 'technique',
+      body: [
+        'The WAL only holds recent changes, so the lake needs the existing rows first. Debezium starts with a **snapshot** of each table, then switches to streaming from the log position recorded when the snapshot began. No change is missed or applied twice.',
+        'Classic snapshots read whole tables in one long transaction. **Incremental snapshots** (the DBLog approach, also in Debezium) read the table in primary-key chunks interleaved with the live stream, using watermarks to drop chunk rows that a newer change has superseded. Snapshots can be paused, resumed, and re-run for one table later.',
+      ],
+      predict: {
+        question: 'Why does a snapshot followed by streaming need a recorded log position?',
+        options: ['To compress the snapshot', 'So streaming starts exactly where the snapshot’s view of the table ends: nothing missed, nothing doubled', 'To speed up the snapshot', 'Kafka requires it'],
+        answer: 1,
+        explain: 'Changes made while the snapshot runs are in the log after that position. Streaming from it replays them on top of the snapshot, and MERGE by key makes any overlap harmless.',
+      },
+    },
+    {
+      title: 'Order per key, deletes and MERGE',
+      tag: 'technique',
+      body: [
+        '**Ordering:** the change topic is keyed by primary key, so every change to order 42 lands in one partition, in commit order. Kafka guarantees order only within a partition; that is all you need, because changes to different rows commute.',
+        '**Applying:** Flink keeps the stream per key and writes to Iceberg as `MERGE INTO orders USING changes ON id WHEN MATCHED AND op=\'d\' THEN DELETE WHEN MATCHED THEN UPDATE WHEN NOT MATCHED THEN INSERT`. A replayed change carries an LSN that is not newer than what the table has, so it is ignored.',
+        '**Deletes:** Debezium emits a delete event, then a **tombstone** (key with a null value) so compacted Kafka topics can drop the key. Your sink must turn the delete into a table delete, not drop it as an empty record.',
+      ],
+      kill: ['flink'],
+      goodToKnow: 'Changes from one transaction can span tables and partitions. If consumers need transaction boundaries (an order and its lines together), use Debezium’s transaction metadata topic, or accept that tables are consistent per row, eventually per transaction.',
+    },
+    {
+      title: 'Schemas change under you',
+      tag: 'technique',
+      body: [
+        'Someone runs `ALTER TABLE orders DROP COLUMN coupon_code`. Debezium reads the new table shape from the log and starts emitting events without the field.',
+        'With a **schema registry** on the change topics, each new schema version is checked for compatibility. Adding a nullable column passes and flows through to Iceberg, which adds the column as metadata only, no rewrite. Breaking changes are rejected at the producer and alert someone instead of silently corrupting the table.',
+      ],
+      add: ['sr'],
+      chaos: 'schema',
+      keyIdea: 'Treat the database schema as a contract with downstream consumers. A registry turns “DDL in prod” into a compatibility check.',
+    },
+    {
+      title: 'Streaming upserts make small files',
+      tag: 'failure',
+      body: [
+        'Committing every minute to 50 partitions writes thousands of small data files a day. Merge-on-read upserts also write **delete files** that every query must join against data files at read time.',
+        'Iceberg and Hudi offer two write modes. **Copy-on-write** rewrites every data file touched by an update: slow writes, fast reads. **Merge-on-read** writes small delta and delete files: fast writes, slower reads until they are compacted. Streaming CDC almost always uses merge-on-read.',
+      ],
+      chaos: 'smallfiles',
+      predict: {
+        question: 'After a week of minute-level MERGE commits and no maintenance, what happens to analyst queries?',
+        options: ['Nothing, Trino is distributed', 'They slow down several times over: opening many small files and applying delete files dominate', 'They return wrong results', 'They fail'],
+        answer: 1,
+        explain: 'The data is correct, just badly laid out. Query planning and per-file overhead grow with the file count, and every delete file is applied on read.',
+      },
+    },
+    {
+      title: 'Compaction keeps it fast',
+      tag: 'technique',
+      body: [
+        'A maintenance job runs `rewrite_data_files` hourly to merge small files and fold delete files into new data files, and `expire_snapshots` plus `remove_orphan_files` daily to free storage. Hudi runs the same idea as inline or async compaction of its log files.',
+        'Compaction is just another commit. Readers keep the snapshot they started with, and the stream keeps writing. Optimistic concurrency resolves the rare conflict, usually by retrying the compaction.',
+      ],
+      add: ['comp'],
+      chaos: 'smallfiles',
+    },
+    {
+      title: 'Recap',
+      tag: 'recap',
+      body: [
+        'Capture changes from the log (Debezium, replication slot), not from queries or dual writes. Snapshot first, then stream from the recorded position.',
+        'Key topics by primary key for ordering, register schemas, MERGE inserts, updates and deletes into a table format with exactly-once commits, and compact continuously. The lake follows production within about a minute, with no load on the primary.',
+      ],
+    },
+  ],
+  quiz: [
+    {
+      id: 'cdc-q1',
+      q: 'Why does `WHERE updated_at > :last_run` polling miss data?',
+      options: ['It is too slow', 'It can’t see hard deletes, collapses intermediate updates, and depends on every writer bumping `updated_at`', 'Postgres forbids it', 'It reads the WAL'],
+      answer: 1,
+      why: 'Query-based CDC sees current state only. Log-based CDC sees every committed change, including deletes.',
+    },
+    {
+      id: 'cdc-q2',
+      q: 'The Debezium connector has been down for two days. What should you worry about on the Postgres primary?',
+      options: ['Nothing, the connector is external', 'The replication slot retains WAL until the connector catches up, which can fill the disk', 'Lost transactions', 'Table locks'],
+      answer: 1,
+      why: 'Slots guarantee no change is missed by holding WAL. Monitor slot lag, and set `max_slot_wal_keep_size` as a safety cap.',
+    },
+    {
+      id: 'cdc-q3',
+      q: 'How is per-row ordering preserved from the database to the table?',
+      options: ['Kafka orders all messages globally', 'Topics are keyed by primary key, so each row’s changes stay in one partition in commit order, and the sink applies them by key and LSN', 'Flink sorts by wall-clock time', 'It isn’t; MERGE fixes ordering'],
+      answer: 1,
+      why: 'Order only matters per key, and a single partition per key preserves it. Global order would cap throughput at one partition.',
+    },
+    {
+      id: 'cdc-q4',
+      q: 'Which write mode fits minute-level CDC upserts into Iceberg or Hudi?',
+      options: ['Copy-on-write, so reads are fast', 'Merge-on-read with regular compaction', 'Append-only, deduplicated at query time', 'Overwrite the whole table each minute'],
+      answer: 1,
+      why: 'Copy-on-write rewrites whole files for each small update, which is too expensive every minute. Merge-on-read writes small deltas and relies on compaction to restore read speed.',
+    },
+    {
+      id: 'cdc-q5',
+      q: 'The app must publish an event whenever an order changes, and it must never disagree with the database. What is the safest design?',
+      options: ['Publish to Kafka, then commit', 'Commit, then publish to Kafka', 'Write the event to an outbox table in the same transaction and capture the outbox with CDC', 'Publish from a database trigger over HTTP'],
+      answer: 2,
+      why: 'The transactional outbox makes the event part of the same commit, and CDC delivers it at least once in order. Dual writes in either order can disagree.',
+    },
+  ],
+  challenge: {
+    id: 'cdc-inventory-hudi',
+    title: 'Warehouse inventory into a Hudi table',
+    context:
+      'A logistics company tracks stock levels for 30 million SKU-location pairs in MySQL: about 15,000 row changes/s during peak picking. Planners query current and historical stock in the lake, and a nightly export no longer finishes before the morning shift. Replicate MySQL into a Hudi table within 10 minutes, exactly once, with deletes, without touching the primary and without changes to the warehouse management code.',
+    workload: { eps: 15000, queryQps: 4, dup: 0.02, unit: 'change' },
+    requirements: [
+      req.noOltp(),
+      req.fresh(600, 'Stream from the binlog and commit micro-batches every minute or two.'),
+      req.exactlyOnce('Upsert by (sku, location) with the binlog position as the precombine field, so replays and out-of-order retries are no-ops.'),
+      req.schemaSafe(),
+      req.chaos('crash', 'A crashed writer resumes without losing or doubling a change', 'Use a checkpointed stream processor whose commits are tied to its checkpoints.'),
+      req.queryP99(5000, 'Merge-on-read log files pile up between compactions.'),
+      req.noLoss(),
+    ],
+    palette: ['app-db', 'cdc', 'cron-script', 'dual-write', 'kafka', 'schema-registry', 'spark-ss', 'flink', 'append-sink', 'lakehouse', 'compaction', 'trino', 'bi'],
+    reference: {
+      nodes: [
+        N('db', 'app-db', X[0], 140, 'MySQL with `binlog_format=ROW` and GTIDs.', { label: 'MySQL · inventory' }),
+        N('cdc', 'cdc', X[1], 140, 'Debezium MySQL connector reading the binlog.', { label: 'Debezium' }),
+        N('kafka', 'kafka', X[2], 140, 'Topic keyed by (sku, location).', { count: 3 }),
+        N('sr', 'schema-registry', X[2], 0, 'Backward-compatible Avro schemas per table.'),
+        N('sss', 'spark-ss', X[3], 140, 'Hudi streaming writer (or DeltaStreamer): upserts by record key, precombine on binlog position, 1-minute trigger, checkpointed offsets.', { count: 2 }),
+        N('lake', 'lakehouse', X[4], 140, 'Hudi merge-on-read table, with an incremental query view for downstream jobs.', { label: 'Hudi · stock_levels' }),
+        N('comp', 'compaction', X[4], 0, 'Async compaction of log files into base files, plus clustering by location.'),
+        N('trino', 'trino', X[5], 140, 'Planner queries on the read-optimised or snapshot view.'),
+        N('bi', 'bi', X[6], 140, 'Stock dashboards.'),
+      ],
+      edges: [
+        E('db', 'cdc'),
+        E('cdc', 'kafka'),
+        E('sr', 'kafka'),
+        E('kafka', 'sss'),
+        E('sss', 'lake', 'Upsert by record key; deletes as Hudi deletes.'),
+        E('comp', 'lake'),
+        E('lake', 'trino'),
+        E('trino', 'bi'),
+      ],
+    },
+    wrong: {
+      'dual-write': W.dualWrite,
+      'cron-script': W.cronScript,
+      'append-sink': W.appendSink,
+    },
+    alt: {
+      flink: 'Flink with the Hudi or Iceberg sink works just as well and commits per checkpoint with lower latency.',
+    },
+  },
+  deeper: [{ label: 'Kafka partitions, keys, ordering and compacted topics', to: '/kafka' }],
+};
+
+/* ------------------------------------------------------------------ */
+/* 5. Open table formats                                               */
+/* ------------------------------------------------------------------ */
+
+export const tableFormats: Pattern = {
+  id: 'table-formats',
+  num: 5,
+  title: 'Open table formats: Iceberg, Delta, Hudi',
+  group: 'Lakehouse',
+  tagline: 'Put a transaction log over Parquet files on object storage: atomic commits, snapshots, time travel and schema evolution, with warehouse-like guarantees on lake storage.',
+  minutes: 15,
+  level: 'Intermediate',
+  signals: [
+    '"readers saw half-written data"',
+    '"we need to query the table as of last Tuesday"',
+    '"adding a column means rewriting the table"',
+    '"Spark, Trino and Flink all need the same tables"',
+    '"listing S3 takes longer than the query"',
+  ],
+  learn: [
+    'Why plain Parquet folders aren’t a table: no atomic commits, no isolation, slow listing',
+    'How Iceberg works: metadata file → manifest list → manifests → data files, committed by an atomic pointer swap',
+    'Snapshots, time travel, rollback and snapshot expiry',
+    'Schema and partition evolution, compaction, and copy-on-write vs merge-on-read',
+  ],
+  realWorld: [
+    { who: 'Netflix', how: 'Created Apache Iceberg because Hive tables on S3 had unreliable listing, no atomic commits and painful schema changes at petabyte scale.' },
+    { who: 'Databricks', how: 'Created Delta Lake, a transaction log of JSON commits plus Parquet checkpoints, now the default table format on its platform.' },
+    { who: 'Apple', how: 'Runs Iceberg at very large scale and is a major contributor, including row-level deletes and merge-on-read.' },
+  ],
+  scenario: {
+    id: 'tf-clickstream-iceberg',
+    title: 'A clickstream table everyone can trust',
+    context:
+      'A media company lands about 30,000 click and playback events/s on S3 for analysts (Trino), data scientists (Spark) and a few dashboards. Today a streaming job writes Parquet into `dt=/hr=` folders. Analysts sometimes see half-written hours, a schema change last month broke every query, and there is no way to answer “what did this table contain before yesterday’s bad deploy?”. Make it a real table: atomic, time-travelable, evolvable and fast to query.',
+    workload: { eps: 30000, queryQps: 6, late: 0.03, dup: 0.01, unit: 'event' },
+    requirements: [
+      req.chaos('crash', 'A writer crashing mid-commit leaves nothing partial visible', 'Readers must only see complete commits: a table format with atomic snapshots, written by a checkpointed job.', ['absorbed']),
+      req.exactlyOnce('Tie table commits to the writer’s checkpoints, so a restart never commits the same data twice.'),
+      req.backfill('full', 'Keep every event in the table so any day can be recomputed or inspected as of an earlier snapshot.'),
+      req.queryP99(5000, 'Streaming commits create small files. Compact them, or queries read many times more files than needed.'),
+      req.schemaSafe('Breaking event schema changes must be stopped before they reach the table.'),
+      req.fresh(300, 'Commit to the table every minute or so.'),
+      req.noLoss(),
+    ],
+    palette: ['events', 'kafka', 'schema-registry', 'mem-buffer', 'flink', 'spark-ss', 'tiny-writer', 'raw-files', 'object-store', 'lakehouse', 'compaction', 'trino', 'bi'],
+    reference: {
+      nodes: [
+        N('events', 'events', X[0], 140, 'Web and TV apps send click and playback events.', { label: 'Click & playback events' }),
+        N('kafka', 'kafka', X[1], 140, 'Durable buffer and replayable log.', { count: 3 }),
+        N('sr', 'schema-registry', X[1], 0, 'Event schemas with compatibility checks.'),
+        N('flink', 'flink', X[2], 140, 'Writes Parquet files and commits one Iceberg snapshot per checkpoint (two-phase: files first, then the metadata pointer).', { count: 2 }),
+        N('lake', 'lakehouse', X[3], 140, 'Iceberg table `clicks`, hidden partitioning by `days(event_ts)`, in a REST/Glue/Nessie catalog.', { label: 'Iceberg · clicks' }),
+        N('comp', 'compaction', X[3], 0, 'Hourly `rewrite_data_files` (bin-pack, sort by `user_id`) and daily `expire_snapshots`.'),
+        N('trino', 'trino', X[4], 140, 'Reads the current snapshot, or one `FOR TIMESTAMP AS OF` a past time.'),
+        N('bi', 'bi', X[5], 140, 'Engagement dashboards.'),
+      ],
+      edges: [
+        E('events', 'kafka'),
+        E('sr', 'kafka'),
+        E('kafka', 'flink'),
+        E('flink', 'lake', 'Commit = atomically swap the table’s metadata pointer in the catalog.'),
+        E('comp', 'lake', 'Rewrites small files into large, sorted ones as a new snapshot.'),
+        E('lake', 'trino', 'Plans from manifests (with column stats) instead of listing S3.'),
+        E('trino', 'bi'),
+      ],
+    },
+    wrong: {
+      'raw-files': W.rawFiles,
+      'tiny-writer': W.tinyWriter,
+      'mem-buffer': W.memBuffer,
+    },
+    alt: {
+      'spark-ss': 'Spark Structured Streaming writing Delta or Iceberg with a 1-minute trigger is equally valid and commits idempotently per micro-batch.',
+      'object-store': 'Every table format stores its files in object storage. Drawing it separately is fine, as long as queries go through the table format, not straight to the files.',
+    },
+  },
+  extras: {
+    nodes: [
+      N('tw', 'tiny-writer', X[2], 300, 'A consumer that writes one Parquet file per poll: hundreds of files per minute.', { label: 'Per-poll file writer' }),
+      N('files', 'raw-files', X[3], 300, 'Parquet files under `s3://lake/clicks/dt=…/hr=…/`. No metadata, no commits: the table is “whatever files are there right now”.', { label: 'Parquet folders' }),
+    ],
+    edges: [E('kafka', 'tw'), E('tw', 'files'), E('flink', 'files'), E('files', 'trino')],
+  },
+  guided: [
+    {
+      title: 'A file per poll',
+      tag: 'problem',
+      body: [
+        'The first version: a small consumer reads from Kafka and writes one Parquet file per poll into folders. Trino reads the folders as a Hive table.',
+        'That is hundreds of files a minute, each a few KB. Before scanning anything, the query engine must **list** the folders (S3 listing is slow and paginated) and open every file’s footer.',
+      ],
+      add: ['events', 'kafka', 'tw', 'files', 'trino', 'bi'],
+      chaos: 'smallfiles',
+      predict: {
+        question: 'A day of this produces ~400,000 files for one table. Where does a 1-day query spend its time?',
+        options: ['Scanning data', 'Listing objects and opening file footers, long before scanning', 'Waiting for Kafka', 'Sorting'],
+        answer: 1,
+        explain: 'Per-file overhead (listing, GET requests, footer parsing) dominates when files are tiny. Columnar formats only help when each file is large enough, typically 128 MB–1 GB.',
+      },
+    },
+    {
+      title: 'Bigger files, but no transactions',
+      tag: 'failure',
+      body: [
+        'Replace the per-poll writer with Flink, which buffers and writes a few large files per minute. Fast scans, but it is still “a folder of files”.',
+        'A folder has no commit. Files appear one at a time as they are uploaded, so a reader can see 7 of 10 files from a write. A writer that crashes leaves partial files behind, and its retry writes the same rows again in new files. Two jobs writing the same folder can overwrite each other.',
+      ],
+      add: ['flink'],
+      remove: ['tw'],
+      chaos: 'crash',
+      predict: {
+        question: 'Flink crashes after uploading 7 of the 10 files of a checkpoint, then restarts from the checkpoint. What does Trino see?',
+        options: ['Only complete data', 'The 7 orphan files plus the 10 rewritten ones: partial data then duplicates', 'Nothing until it finishes', 'An error'],
+        answer: 1,
+        explain: 'Nothing marks those 7 files as uncommitted, so every reader that lists the folder includes them. Plain folders can’t give you atomicity or isolation.',
+      },
+    },
+    {
+      title: 'A table is metadata, not a folder',
+      tag: 'technique',
+      body: [
+        'An open table format adds a metadata layer. In Iceberg: the **catalog** points to the current `metadata.json` (schema, partition spec, snapshot list) → each **snapshot** has a **manifest list** → **manifests** list data files with per-column min/max stats → **data files** (Parquet).',
+        'A writer uploads its data files first (invisible), writes new manifests and metadata, then **commits** by atomically swapping the catalog pointer (compare-and-swap). If the swap fails, because the writer crashed or another writer committed first, nothing changed for readers; the writer retries or orphan cleanup removes the files.',
+        'Readers plan from manifests, not S3 listings, and skip files whose column stats can’t match the filter.',
+      ],
+      add: ['lake'],
+      remove: ['files'],
+      chaos: 'crash',
+      keyIdea: 'The table is whatever the current metadata says, not whatever files happen to be in the folder. One atomic pointer swap = one ACID commit.',
+    },
+    {
+      title: 'Snapshots and time travel',
+      tag: 'technique',
+      body: [
+        'Every commit creates a new snapshot, and old ones stay readable until they expire. `SELECT … FROM clicks FOR TIMESTAMP AS OF \'2026-11-23 09:00\'` reproduces a report exactly; `CALL system.rollback_to_snapshot(…)` undoes a bad deploy in seconds, because only the pointer moves.',
+        'Snapshots cost storage: files replaced by later commits are kept for as long as a snapshot references them. `expire_snapshots` (e.g. keep 7 days) deletes the unreachable files. Time travel only reaches back as far as you retain.',
+      ],
+      predict: {
+        question: 'A buggy job overwrote yesterday’s partition with garbage at 10:00. What is the fastest fix?',
+        options: ['Recompute from Kafka', 'Roll the table back to the snapshot before 10:00, or rewrite the partition from it', 'Restore S3 from backup', 'Delete the folder'],
+        answer: 1,
+        explain: 'The old files are still referenced by the earlier snapshot. Rollback is a metadata change, no data copy. Then fix the job and re-run.',
+      },
+    },
+    {
+      title: 'Schema and partition evolution',
+      tag: 'technique',
+      body: [
+        'Iceberg tracks columns by **id**, not by name or position, so add, drop, rename and reorder are metadata-only changes, and old files are read correctly. Type widening (int → long) is allowed; unsafe changes are refused.',
+        '**Hidden partitioning:** the table is partitioned by `days(event_ts)`, a transform, and queries simply filter on `event_ts`. When volume grows you can switch to `hours(event_ts)` for new data, and old files keep their old layout.',
+        'The table protects itself; a schema registry on the topic protects it from producers before data even arrives.',
+      ],
+      add: ['sr'],
+      chaos: 'schema',
+      goodToKnow: 'Delta Lake supports column mapping (rename/drop by id) and generated columns; Hudi supports schema evolution on write. Partition evolution without rewrites is an Iceberg specialty; Delta’s answer is liquid clustering.',
+    },
+    {
+      title: 'Commits every minute make small files',
+      tag: 'failure',
+      body: [
+        'Flink commits a snapshot per checkpoint. With 1-minute checkpoints and 2 writers across active partitions, that is thousands of files and 1,440 snapshots a day.',
+        'Each query must open more files and read more manifests than necessary. Writes are fine; reads slowly degrade.',
+      ],
+      chaos: 'smallfiles',
+    },
+    {
+      title: 'Compaction, CoW and MoR',
+      tag: 'technique',
+      body: [
+        'A maintenance job rewrites small files into large ones (`rewrite_data_files`, bin-pack or sort/Z-order), merges manifests and expires snapshots. Each run is just another atomic commit, so readers and the stream are unaffected.',
+        'For updates and deletes, formats offer two strategies. **Copy-on-write** rewrites every affected file at write time: simple, fast reads, expensive frequent updates. **Merge-on-read** writes delete files (position or equality deletes) or log files and merges them at read time: cheap writes, and compaction folds them back in. Append-mostly tables like this one rarely need either.',
+      ],
+      add: ['comp'],
+      chaos: 'smallfiles',
+      keyIdea: 'A table format makes small files safe. Compaction makes them fast. Plan both from day one.',
+    },
+    {
+      title: 'Iceberg, Delta or Hudi?',
+      tag: 'case',
+      body: [
+        '**Iceberg:** engine-neutral spec with a strong catalog story (REST catalog, Polaris, Glue, Nessie), hidden partitioning and partition evolution. Broadest multi-engine support (Spark, Flink, Trino, Snowflake, BigQuery, Athena).',
+        '**Delta Lake:** a `_delta_log/` of JSON commits plus Parquet checkpoints, deepest integration with Databricks and Spark, liquid clustering, deletion vectors. **Hudi:** built for upserts and incremental pulls (record-level index, MoR log files, incremental queries).',
+        'The ideas are the same; the choice is about your engines and catalog. Interoperability layers such as Apache XTable and Delta UniForm can expose one table’s metadata in the other formats.',
+      ],
+      kill: ['flink'],
+    },
+    {
+      title: 'Recap',
+      tag: 'recap',
+      body: [
+        'Folders of files aren’t tables: no atomic commits, no isolation, slow listing. A table format adds a metadata tree and an atomic pointer swap, giving ACID commits, snapshots, time travel, and schema and partition evolution.',
+        'Write with a checkpointed engine that commits per checkpoint, compact and expire snapshots continuously, and query through the table, never the raw paths.',
+      ],
+    },
+  ],
+  quiz: [
+    {
+      id: 'tf-q1',
+      q: 'What makes an Iceberg commit atomic?',
+      options: ['S3 transactions', 'Writing data files first, then atomically swapping the catalog’s pointer to the new metadata file', 'A lock on the folder', 'Writing all files in one PUT'],
+      answer: 1,
+      why: 'Object stores have no multi-object transactions. Table formats get atomicity from a single compare-and-swap on the metadata pointer (catalog, or a conditional put of the next log entry in Delta).',
+    },
+    {
+      id: 'tf-q2',
+      q: 'Why can Iceberg rename a column without rewriting data?',
+      options: ['Parquet supports renames', 'Columns are tracked by field id in metadata, so names are just labels', 'It rewrites lazily', 'It can’t'],
+      answer: 1,
+      why: 'Name-based resolution (Hive) breaks or mis-reads on rename. Id-based resolution keeps old files readable under any new name.',
+    },
+    {
+      id: 'tf-q3',
+      q: 'Updates arrive every minute. Which mode keeps writes cheap?',
+      options: ['Copy-on-write', 'Merge-on-read, with compaction', 'Full table overwrite', 'Append duplicates and dedupe in BI'],
+      answer: 1,
+      why: 'Merge-on-read writes small delete/log files; compaction later folds them into data files to restore read speed.',
+    },
+    {
+      id: 'tf-q4',
+      q: 'Time travel to 30 days ago fails with “snapshot not found”. Why?',
+      options: ['Iceberg doesn’t support it', 'Snapshot expiry removed it: retention was shorter than 30 days', 'The catalog is down', 'Compaction corrupted it'],
+      answer: 1,
+      why: 'Time travel reaches back only as far as snapshot retention. Longer retention costs more storage for files that later commits replaced.',
+    },
+    {
+      id: 'tf-q5',
+      q: 'What does hidden partitioning give you?',
+      options: ['Encrypted partitions', 'Partitions derived from a column by a transform (e.g. `days(ts)`), so queries filter on the column and the layout can evolve', 'Partitions invisible to writers', 'No partitions at all'],
+      answer: 1,
+      why: 'Users never filter on a separate `dt` column, so they can’t forget to, and the transform can change for new data without breaking queries.',
+    },
+  ],
+  challenge: {
+    id: 'tf-vehicle-telemetry',
+    title: 'Connected-car telemetry table',
+    context:
+      'An automaker receives about 40,000 telemetry messages/s from 2 million connected cars (speed, battery, fault codes). Engineers analyse faults across months of history with Trino, and regulators may ask what data a decision was based on at a given date. The current pipeline writes Parquet straight to S3 folders: partial writes after crashes, and millions of tiny files. Build a table that survives crashes, supports time travel and stays fast.',
+    workload: { eps: 40000, queryQps: 5, late: 0.05, dup: 0.02, unit: 'message' },
+    requirements: [
+      req.chaos('crash', 'A crashed writer leaves nothing partial visible', 'Commit atomically through a table format from a checkpointed writer.', ['absorbed']),
+      req.exactlyOnce(),
+      req.backfill('full', 'Keep history in the table and retain snapshots for audit.'),
+      req.queryP99(5000),
+      req.fresh(600, 'Engineers need faults within 10 minutes.'),
+      req.noLoss(),
+    ],
+    palette: ['events', 'kafka', 'mem-buffer', 'spark-ss', 'flink', 'tiny-writer', 'raw-files', 'lakehouse', 'compaction', 'trino', 'bi'],
+    reference: {
+      nodes: [
+        N('cars', 'events', X[0], 140, 'MQTT gateways forward vehicle messages.', { label: 'Vehicle gateways' }),
+        N('kafka', 'kafka', X[1], 140, 'Keyed by VIN; replayable for 7 days.', { count: 3 }),
+        N('sss', 'spark-ss', X[2], 140, 'Writes Delta/Iceberg with a 1-minute trigger; offsets and commits are tied, so restarts don’t duplicate.', { count: 3 }),
+        N('lake', 'lakehouse', X[3], 140, 'Telemetry table partitioned by day, clustered by VIN.', { label: 'Telemetry table' }),
+        N('comp', 'compaction', X[3], 0, 'OPTIMIZE / rewrite_data_files hourly; snapshot retention 90 days for audit.'),
+        N('trino', 'trino', X[4], 140, 'Fault analysis, including `AS OF` queries for audits.'),
+        N('bi', 'bi', X[5], 140, 'Fleet health dashboards.'),
+      ],
+      edges: [
+        E('cars', 'kafka'),
+        E('kafka', 'sss'),
+        E('sss', 'lake', 'One atomic commit per micro-batch.'),
+        E('comp', 'lake'),
+        E('lake', 'trino'),
+        E('trino', 'bi'),
+      ],
+    },
+    wrong: {
+      'raw-files': W.rawFiles,
+      'tiny-writer': W.tinyWriter,
+      'mem-buffer': W.memBuffer,
+    },
+    alt: {
+      flink: 'Flink with the Iceberg sink commits per checkpoint with lower latency; same guarantees.',
+    },
+  },
+  deeper: [{ label: 'Partitioning, clustering and table design', to: '/data-modeling' }],
+};
+
+/* ------------------------------------------------------------------ */
+/* 6. Medallion architecture                                           */
+/* ------------------------------------------------------------------ */
+
+export const medallion: Pattern = {
+  id: 'medallion',
+  num: 6,
+  title: 'Medallion: bronze, silver, gold',
+  group: 'Lakehouse',
+  tagline: 'Layer the lakehouse: land raw data immutably (bronze), clean and conform it once (silver), and model it for consumers (gold), so every fix is a replay, not a re-ingest.',
+  minutes: 14,
+  level: 'Intermediate',
+  signals: [
+    '"every team cleans the same data differently"',
+    '"we found a bug and need to reprocess last year"',
+    '"the source system only keeps 7 days"',
+    '"which table should analysts use?"',
+    '"bad data reached the CFO dashboard"',
+  ],
+  learn: [
+    'Why bronze stays raw and immutable: replay and backfill without touching sources',
+    'Where dedup, typing and conforming happen (silver), and where business modelling happens (gold)',
+    'Quality gates between layers: write-audit-publish',
+    'Contracts, catalog and lineage across layers, and when medallion is overkill',
+  ],
+  realWorld: [
+    { who: 'Databricks', how: 'Popularised the bronze/silver/gold naming for Delta Lake pipelines; the same layering is used widely in Lakeflow (Delta Live Tables) with expectations between layers.' },
+    { who: 'Airbnb', how: 'Built Midas to certify gold-standard datasets and metrics, with design review, quality checks and clear ownership, so consumers know which tables to trust.' },
+    { who: 'Netflix', how: 'Uses write-audit-publish on Iceberg: write to an unpublished branch or snapshot, run audits, then publish atomically.' },
+  ],
+  scenario: {
+    id: 'med-subscriptions',
+    title: 'Subscription analytics for a streaming service',
+    context:
+      'A video-streaming service combines app events (about 20,000/s: plays, signups, cancels) with billing records from Postgres. Revenue, churn and engagement dashboards must be ready by morning, consistent across teams and trustworthy. Today one Spark job reads Kafka and writes the dashboard tables directly: when its logic was wrong for a month, the raw events had already expired from Kafka and the history couldn’t be fixed. Design the layers.',
+    workload: { eps: 20000, queryQps: 10, late: 0.05, dup: 0.03, unit: 'event' },
+    requirements: [
+      req.backfill('full', 'Keep an immutable raw copy of every input in the lakehouse, so any logic fix can be replayed from it.'),
+      req.exactlyOnce('Sources resend and jobs rerun. Deduplicate once, in the cleaning layer, by event id or primary key.'),
+      req.quality('Gate the cleaned layer with checks (uniqueness, nulls, volume, freshness) before anything downstream reads it.'),
+      req.schemaSafe('Bad or changed input must be stopped at a layer boundary, not reach gold. Put a data contract check on silver.'),
+      req.lineage(),
+      req.fresh(3 * 3600, 'Two batch hops (bronze → silver, silver → gold) of about an hour each fit within 3 hours.'),
+      req.queryP99(5000, 'Dashboards read small, modelled gold tables, not raw events.'),
+    ],
+    palette: ['events', 'app-db', 'kafka', 'spark-ss', 'connector', 'raw-files', 'lakehouse', 'compaction', 'spark', 'dbt', 'cron-script', 'append-sink', 'dq', 'catalog', 'warehouse', 'trino', 'bi'],
+    reference: {
+      nodes: [
+        N('events', 'events', X[0], 60, 'Plays, signups and cancels from all apps.', { label: 'App events' }),
+        N('kafka', 'kafka', X[1], 60, 'Durable ingest; 7-day retention only.', { count: 3 }),
+        N('sss', 'spark-ss', X[2], 60, 'Lands events into bronze as-is (plus ingest metadata), with no business logic. Exactly once per micro-batch.', { count: 2 }),
+        N('db', 'app-db', X[0], 220, 'Billing Postgres: subscriptions, invoices, plans.', { label: 'Billing DB' }),
+        N('conn', 'connector', X[2], 220, 'Incremental CDC sync of billing tables into bronze.'),
+        N('bronze', 'lakehouse', X[3], 140, 'Raw, append-only, immutable: exactly what arrived, with `_ingested_at`, source and schema version. Kept for years. The replay source for everything.', { label: 'Bronze · raw' }),
+        N('comp', 'compaction', X[3], 0, 'Compacts bronze’s streaming files.'),
+        N('spark', 'spark', X[4], 140, 'Bronze → silver: parse, type, dedup by event id, conform ids and time zones, apply CDC as MERGE. Overwrites per partition.', { label: 'Spark · clean & conform' }),
+        N('silver', 'lakehouse', X[5], 140, 'Cleaned, deduplicated, conformed entities: `events`, `subscriptions`, `accounts`. Source-aligned, not report-aligned.', { label: 'Silver · clean' }),
+        N('dq', 'dq', X[5], 0, 'Write-audit-publish: each silver run writes to a staging branch, checks contract, uniqueness, nulls, volume and freshness, then publishes. Failures block gold.'),
+        N('dbt', 'dbt', X[6], 140, 'Silver → gold: star schemas and metrics (`fct_subscription_days`, `dim_account`, MRR, churn).', { label: 'dbt · model' }),
+        N('catalog', 'catalog', X[6], 0, 'Catalog with lineage, owners and certification: bronze → silver → gold → dashboard.'),
+        N('gold', 'lakehouse', X[6], 320, 'Business-level marts, small and pre-aggregated, certified for dashboards.', { label: 'Gold · marts' }),
+        N('trino', 'trino', X[5], 320, 'Serves dashboards from gold.'),
+        N('bi', 'bi', X[4], 320, 'Revenue, churn and engagement dashboards.'),
+      ],
+      edges: [
+        E('events', 'kafka'),
+        E('kafka', 'sss'),
+        E('sss', 'bronze', 'Raw as received. Never updated in place.'),
+        E('db', 'conn'),
+        E('conn', 'bronze'),
+        E('comp', 'bronze'),
+        E('bronze', 'spark', 'Reads bronze by ingest partition; a backfill just reads older ones.'),
+        E('spark', 'silver', 'Dedup + conform, idempotent MERGE / partition overwrite.'),
+        E('dq', 'silver', 'Audit before publish: bad batches never become visible.'),
+        E('silver', 'dbt'),
+        E('catalog', 'dbt', 'dbt publishes its lineage graph and docs to the catalog.'),
+        E('dbt', 'gold'),
+        E('gold', 'trino'),
+        E('trino', 'bi'),
+      ],
+    },
+    wrong: {
+      'raw-files': W.rawFiles,
+      'cron-script': W.cronScript,
+      'append-sink': W.appendSink,
+    },
+    alt: {
+      warehouse: 'Gold (or silver and gold) in a cloud warehouse is common: land bronze in the lake, then load or federate into Snowflake/BigQuery for modelling and BI. The layering is the same.',
+    },
+  },
+  extras: {
+    nodes: [],
+    edges: [
+      E('sss', 'gold', 'One job parses, dedups, joins and aggregates straight into the dashboard tables.', 'bronze'),
+      E('spark', 'gold', 'Clean and model in one step.', 'silver'),
+    ],
+  },
+  guided: [
+    {
+      title: 'One job does everything',
+      tag: 'problem',
+      body: [
+        'Today: a streaming job reads Kafka, parses, deduplicates, joins and aggregates, and writes dashboard tables directly. It is fast to build and there is only one table to look at.',
+        'But the only copy of the raw input is Kafka, kept for 7 days. Once a logic bug is older than that, the wrong numbers are permanent. And a schema change in the events breaks the job and the dashboards at the same moment.',
+      ],
+      add: ['events', 'kafka', 'sss', 'gold', 'trino', 'bi'],
+      chaos: 'schema',
+      predict: {
+        question: 'You find the churn logic has been wrong for 30 days. Kafka keeps 7. What can you fix?',
+        options: ['All 30 days, from Kafka', 'Only the last 7 days; the rest is lost unless raw data was kept somewhere else', 'Nothing', 'All 30 days, from the dashboard tables'],
+        answer: 1,
+        explain: 'Derived tables can’t be “un-aggregated”. Without a durable raw copy, history older than the log’s retention can’t be recomputed. Gold isn’t a replay source.',
+      },
+    },
+    {
+      title: 'Bronze: land raw, keep forever',
+      tag: 'technique',
+      body: [
+        'Add a **bronze** layer: every input, exactly as received, appended to lakehouse tables with ingest metadata (`_ingested_at`, `_source`, `_schema_version`). No parsing beyond what is needed to store it, no dedup, no business logic. Billing comes in via an incremental connector into its own bronze tables.',
+        'Bronze is immutable and cheap (object storage), kept for years. A batch Spark job now builds the dashboard tables from bronze, so any logic fix is a replay of bronze, and source systems are never asked twice.',
+      ],
+      add: ['bronze', 'spark', 'db', 'conn', 'comp'],
+      chaos: 'crash',
+      keyIdea: 'Keep raw immutable. It is the only layer you can’t rebuild, so it is the one that makes every other layer rebuildable.',
+    },
+    {
+      title: 'Silver: clean and conform once',
+      tag: 'technique',
+      body: [
+        'Split cleaning from modelling. **Silver** holds source-aligned entities that are typed, deduplicated (by event id or primary key, applying CDC as MERGE), with ids, currencies and time zones conformed. It is the “single version of the facts”, not of any report.',
+        'Everyone downstream builds on silver, so dedup and conforming happen once instead of in every dashboard query. The Spark job is idempotent per partition, so reprocessing a day replaces it.',
+      ],
+      add: ['silver', 'dbt'],
+      chaos: 'replay',
+      predict: {
+        question: 'Where should duplicate events be removed?',
+        options: ['In bronze, before landing', 'In silver, once, by a stable key', 'In every gold model', 'In the BI tool'],
+        answer: 1,
+        explain: 'Bronze must keep exactly what arrived (including duplicates) so it stays a faithful replay source. Dedup once in silver, and everything downstream inherits it.',
+      },
+    },
+    {
+      title: 'Gold: model for consumers',
+      tag: 'technique',
+      body: [
+        '**Gold** is consumer-aligned: dimensional models (`fct_subscription_days`, `dim_account`, `dim_plan`) and metric tables (MRR, churn, engagement), built with dbt from silver. Small, pre-joined and fast for dashboards.',
+        'There can be many gold tables per domain; they are cheap to rebuild from silver. Dashboards and analysts query gold, data scientists often use silver, and almost nobody queries bronze.',
+      ],
+      goodToKnow: 'Gold modelling is classic dimensional modelling: grain first, then facts and conformed dimensions, slowly changing dimensions where history matters. See the data modelling module.',
+    },
+    {
+      title: 'Quality gates: write-audit-publish',
+      tag: 'technique',
+      body: [
+        'A layer boundary is the natural place for checks. Each silver run **writes** to an unpublished branch or staging snapshot, **audits** it (schema matches the contract, ids unique, no unexpected nulls, row count within the normal range, data fresh), and only then **publishes** with an atomic commit.',
+        'A failed audit blocks publication, so gold keeps yesterday’s good data and someone is alerted. A bad deploy or a source schema change becomes a delay, not a wrong dashboard.',
+      ],
+      add: ['dq'],
+      chaos: 'schema',
+      keyIdea: 'Gate the layers: bad data should stop at a boundary and wait for a human, never flow through to consumers.',
+    },
+    {
+      title: 'Contracts and a catalog',
+      tag: 'technique',
+      body: [
+        '**Data contracts** formalise each boundary: the producing team owns bronze/silver schemas and semantics, with versioning and compatibility rules; consumers depend on the contract, not on whatever the job wrote yesterday.',
+        'A **catalog** with lineage shows how every gold column traces back through silver to bronze and the source, who owns each table, and which tables are certified. Before you change a silver column, you see the 40 gold models and 12 dashboards that depend on it.',
+      ],
+      add: ['catalog'],
+    },
+    {
+      title: 'Backfill from bronze',
+      tag: 'case',
+      body: [
+        'The churn definition changes: paused accounts no longer count as churned. Fix the silver logic, re-run silver for the affected partitions from bronze, then rebuild the gold models. Sources are not touched, and every layer overwrites its partitions idempotently.',
+        'Late events are the same story: they land in a later bronze partition, and the next silver run picks them up through a lookback window or a MERGE by key.',
+      ],
+      chaos: 'late',
+      predict: {
+        question: 'A year-long backfill is needed after a silver logic fix. What do you read?',
+        options: ['The source APIs and databases again', 'Bronze, which still holds every raw input', 'Gold', 'Kafka'],
+        answer: 1,
+        explain: 'That is what bronze is for. Re-reading sources is slow, may hit API limits, and sources often no longer have the history.',
+      },
+    },
+    {
+      title: 'Trade-offs',
+      tag: 'tradeoff',
+      body: [
+        'Each layer adds storage, a batch hop of latency and a job to own. For a small team with one source, bronze plus a modelled layer may be enough; insisting on three layers everywhere creates tables nobody uses.',
+        'The names matter less than the rules: raw is immutable and replayable, cleaning happens once, consumers get modelled and gated tables, and every hop is idempotent. Near-real-time medallion is possible with streaming between layers, but the batch version is simpler to reason about and to backfill.',
+      ],
+    },
+    {
+      title: 'Recap',
+      tag: 'recap',
+      body: [
+        'Bronze: raw, immutable, kept long, the replay source. Silver: typed, deduplicated, conformed entities, gated by quality checks and contracts. Gold: dimensional models and metrics for consumers.',
+        'Idempotent jobs between layers, write-audit-publish at the boundaries, and a catalog with lineage across them. Any fix is a replay from bronze.',
+      ],
+    },
+  ],
+  quiz: [
+    {
+      id: 'med-q1',
+      q: 'Why should bronze keep duplicates and malformed records?',
+      options: ['It is cheaper to skip cleaning', 'Bronze must be a faithful copy of what arrived, so any later logic can be replayed from it', 'Gold needs duplicates', 'It shouldn’t'],
+      answer: 1,
+      why: 'Anything dropped in bronze is gone forever. Cleaning rules change; raw data shouldn’t.',
+    },
+    {
+      id: 'med-q2',
+      q: 'Which layer is source-aligned and which is consumer-aligned?',
+      options: ['Gold is source-aligned, silver consumer-aligned', 'Silver is source-aligned (clean entities), gold consumer-aligned (models and metrics)', 'Both are consumer-aligned', 'Bronze is consumer-aligned'],
+      answer: 1,
+      why: 'Silver mirrors source entities cleaned and conformed; gold reshapes them for specific uses.',
+    },
+    {
+      id: 'med-q3',
+      q: 'A silver audit fails because a source started sending `amount` as a string. What should happen?',
+      options: ['Publish anyway, and fix later', 'The batch isn’t published, gold keeps the last good data, and owners are alerted', 'Drop the column', 'Cast to null silently'],
+      answer: 1,
+      why: 'Write-audit-publish turns bad input into a delay at a known boundary instead of wrong numbers downstream.',
+    },
+    {
+      id: 'med-q4',
+      q: 'When is a full three-layer medallion overkill?',
+      options: ['Never', 'With a single simple source and one consumer, where raw plus one modelled layer gives the same guarantees', 'When using Delta', 'When data is streaming'],
+      answer: 1,
+      why: 'Layers are a means: replayability, single cleaning, gated consumption. Add layers when they buy those, not by default.',
+    },
+  ],
+  challenge: {
+    id: 'med-insurance-claims',
+    title: 'Insurance claims lakehouse',
+    context:
+      'An insurer wants one trustworthy view of claims for actuaries and fraud analysts. Claims and policies live in a core Postgres system; adjuster notes and case status in Salesforce. About 2,000 changes/s at peak. Records contain personal and health data that only a few roles may see. Regulators require reproducing any figure as of a past date, and lineage for every reported metric. Build bronze, silver and gold layers that keep raw history, mask PII before analysts see it and gate quality.',
+    workload: { eps: 2000, queryQps: 6, late: 0.02, dup: 0.02, unit: 'record' },
+    requirements: [
+      req.backfill('full', 'Keep raw history in bronze for reproduction and backfills.'),
+      req.exactlyOnce(),
+      req.quality(),
+      req.lineage('Regulators ask where every reported number comes from.'),
+      req.edge('pii', 'lakehouse', 'PII is masked or tokenised in the cleaned layer', 'Link a PII policy to the silver table so analysts only ever see masked columns.'),
+      req.noOltp(),
+      req.fresh(6 * 3600, 'Actuarial marts must be ready each morning.'),
+    ],
+    palette: ['app-db', 'saas', 'full-dump', 'connector', 'cron-script', 'raw-files', 'lakehouse', 'spark', 'dbt', 'append-sink', 'dq', 'pii', 'catalog', 'trino', 'bi'],
+    reference: {
+      nodes: [
+        N('db', 'app-db', X[0], 60, 'Core claims and policy system.', { label: 'Claims DB' }),
+        N('sf', 'saas', X[0], 220, 'Adjuster notes and case status.', { label: 'Salesforce' }),
+        N('conn', 'connector', X[1], 140, 'Incremental syncs (CDC for Postgres, API cursor for Salesforce).'),
+        N('bronze', 'lakehouse', X[2], 140, 'Raw, immutable, retained 10 years, access restricted to the platform team.', { label: 'Bronze · raw' }),
+        N('spark', 'spark', X[3], 140, 'Dedup, type, conform; tokenise PII.', { label: 'Spark · clean & conform' }),
+        N('silver', 'lakehouse', X[4], 140, 'Clean `claims`, `policies`, `parties` with masked PII columns.', { label: 'Silver · clean' }),
+        N('dq', 'dq', X[3], 0, 'Audit before publish: unique claim ids, valid amounts, volume.'),
+        N('pii', 'pii', X[4], 0, 'Column masking and row filters by role; only the fraud team sees unmasked names.'),
+        N('dbt', 'dbt', X[5], 140, 'Loss triangles, claim frequency and severity marts.', { label: 'dbt · model' }),
+        N('catalog', 'catalog', X[5], 0, 'Lineage and owners for every gold metric.'),
+        N('gold', 'lakehouse', X[6], 140, 'Actuarial and fraud marts.', { label: 'Gold · marts' }),
+        N('trino', 'trino', X[6], 320, 'Serves actuaries and dashboards.'),
+        N('bi', 'bi', X[5], 320, 'Actuarial and fraud dashboards.'),
+      ],
+      edges: [
+        E('db', 'conn'),
+        E('sf', 'conn'),
+        E('conn', 'bronze'),
+        E('bronze', 'spark'),
+        E('spark', 'silver'),
+        E('dq', 'silver'),
+        E('pii', 'silver'),
+        E('silver', 'dbt'),
+        E('catalog', 'dbt'),
+        E('dbt', 'gold'),
+        E('gold', 'trino'),
+        E('trino', 'bi'),
+      ],
+    },
+    wrong: {
+      'full-dump': W.fullDump,
+      'cron-script': W.cronScript,
+      'raw-files': W.rawFiles,
+      'append-sink': W.appendSink,
+    },
+  },
+  deeper: [{ label: 'Dimensional modelling for the gold layer', to: '/data-modeling' }],
+};
+
+export const LAKEHOUSE_PATTERNS: Pattern[] = [cdcLakehouse, tableFormats, medallion];

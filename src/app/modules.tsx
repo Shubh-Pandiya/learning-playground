@@ -1,5 +1,5 @@
 import { lazy, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react';
-import { Boxes, Database, ListTree, Network, Workflow } from 'lucide-react';
+import { Boxes, Database, ListTree, Network, Waypoints, Workflow } from 'lucide-react';
 import type { ModuleId, ProgressNamespace } from '@/shared/progress';
 
 export interface ModuleDef {
@@ -86,7 +86,7 @@ export const tracks: TrackDef[] = [
     id: 'data',
     index: '03',
     title: 'Data Engineering',
-    tagline: 'Query real Postgres in your browser and model data the way production needs it.',
+    tagline: 'Query real Postgres in your browser, model data the way production needs it, and design pipelines that stay correct at scale.',
     modules: [
       {
         id: 'sql',
@@ -113,6 +113,19 @@ export const tracks: TrackDef[] = [
         unit: 'models',
         highlights: ['ERD builder', 'OLTP vs OLAP', 'impact feedback'],
         Component: lazy(() => import('@/modules/data-modeling')),
+      },
+      {
+        id: 'de-system-design',
+        path: '/de-system-design',
+        namespace: 'desd',
+        title: 'Data Engineering System Design',
+        short: 'DE System Design',
+        blurb:
+          'Drag Kafka, Flink, Spark, Airflow, Iceberg, warehouses and OLAP stores into pipelines and watch freshness, delivery guarantees, backfill and cost change. Break them with late data, schema changes and replays.',
+        icon: <Waypoints size={20} />,
+        unit: 'patterns',
+        highlights: ['pipeline builder', 'data chaos drills', 'inside Spark/Flink/Iceberg'],
+        Component: lazy(() => import('@/modules/de-system-design')),
       },
     ],
   },

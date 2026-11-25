@@ -1,6 +1,6 @@
 # `src/shared` — design system & app services
 
-Everything here is shared by all modules: `dsa`, `system-design`, `kafka`, `sql`, `data-modeling`.
+Everything here is shared by all modules: `dsa`, `system-design`, `kafka`, `sql`, `data-modeling`, `de-system-design`.
 Import via the `@/` alias (→ `src/`). Don't fork these — extend them.
 
 ## Look & feel
@@ -65,7 +65,7 @@ const f = frames[s.step];
 ## Progress persistence — `import { … } from '@/shared/progress'`
 
 All progress lives in `localStorage` under `lp:<namespace>:<name>`
-(namespaces: `dsa`, `sd` (system design), `kafka`, `sql`, `dm` (data modelling), `app`). The dev server is pinned
+(namespaces: `dsa`, `sd` (system design), `kafka`, `sql`, `dm` (data modelling), `desd` (data-engineering system design), `app`). The dev server is pinned
 to `http://localhost:5199` because localStorage is per-origin.
 
 ```ts
@@ -88,7 +88,7 @@ useReportProgress('dsa', {
 // or imperatively: reportProgress('system-design', {...})
 ```
 
-Module ids (`ModuleId`): `'dsa' | 'system-design' | 'kafka' | 'sql' | 'data-modeling'`.
+Module ids (`ModuleId`): `'dsa' | 'system-design' | 'kafka' | 'sql' | 'data-modeling' | 'de-system-design'`.
 
 ### Feeding the home "Today" plan
 
