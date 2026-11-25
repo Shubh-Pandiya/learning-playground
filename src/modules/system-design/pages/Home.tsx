@@ -1,3 +1,5 @@
+import { InsideTeaser } from './Inside';
+import { PracticeTeaser } from './Practice';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Brain, CalendarClock, Footprints, Hammer, Shuffle, Skull, Trophy } from 'lucide-react';
 import { cn } from '@/shared/cn';
@@ -144,6 +146,10 @@ export function Home() {
         </div>
         <div className="mt-3">
           <ProgressBar value={mastered} max={20} size="xs" tone="ok" />
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <InsideTeaser />
+          <PracticeTeaser />
         </div>
 
         <div className="mt-6 grid gap-2 rounded-xl border border-line bg-sunken/60 p-3 text-[12.5px] sm:grid-cols-4">

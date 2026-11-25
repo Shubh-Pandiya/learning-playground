@@ -52,6 +52,31 @@ export const PRINCIPLES: { name: string; research: string; here: string }[] = [
     research: 'Productive failure: exploring a problem and getting it wrong before instruction deepens understanding (Kapur).',
     here: 'Chaos tools such as kill instance and 2×/4×/10× traffic let you break your own design and see SPOFs, cascades and backlogs right away.',
   },
+  {
+    name: 'Causal feedback: every change shows its impact',
+    research: 'Learners build mental models faster when cause and effect are shown together, not left to inference (Mayer’s signalling; contiguity).',
+    here: 'Every add, remove, connect, scale, kill or traffic change writes a change-log entry: a before→after diff of p99, capacity, errors, availability and cost, which nodes got hotter or cooler, and any new risks (for example stale reads or a new SPOF). Learn mode shows "What this step changed" for each step.',
+  },
+  {
+    name: 'Look inside the box (mental models, not labels)',
+    research: 'Experts reason from how a mechanism works, not from its name (Chi’s expert–novice studies). Self-generated structure beats reading (generation effect).',
+    here: 'Every component has an Inside view: an animated request path through its parts, an Assemble drill where you drag the parts into the right order, design knobs with real-world defaults, failure modes and napkin numbers, plus hands-on labs (LB algorithms, eviction policies, rate-limit algorithms, B-tree vs LSM, hash rings, bloom filters, inverted index, circuit breaker, queue backlog).',
+  },
+  {
+    name: 'Error detection (design review)',
+    research: 'Finding errors in worked examples builds the conceptual knowledge needed to avoid them (Große & Renkl; erroneous examples).',
+    here: 'Design-review drills give you a teammate’s plausible but flawed design. You test it live, then flag and classify each flaw. False alarms cost points, so you learn to verify before you object.',
+  },
+  {
+    name: 'Case-based, deliberate practice (incidents)',
+    research: 'Experts are built from many worked cases with feedback on decisions under pressure (Ericsson; case-based reasoning; Klein’s recognition-primed decisions).',
+    here: 'Incident drills page you with a live, broken system. You go through triage, root cause, mitigate and prevent, with an explanation after every choice, then read a blameless postmortem and a real-world incident of the same shape.',
+  },
+  {
+    name: 'Self-explanation + expert comparison (ADR-lite)',
+    research: 'Explaining a decision in your own words, then comparing it with an expert’s, sharpens metacognition, which is knowing what you don’t know (Chi; Dunlosky).',
+    here: 'You commit to an option and write a four-line ADR (decision, because, we accept, revisit when) before the expert ADR is revealed. Missed considerations are highlighted, so you see exactly which forces you didn’t weigh.',
+  },
 ];
 
 export function Method() {

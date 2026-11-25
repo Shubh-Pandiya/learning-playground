@@ -6,6 +6,11 @@ import { Home } from './pages/Home';
 import { Method } from './pages/Method';
 import { PatternPage } from './pages/PatternPage';
 import { Review } from './pages/Review';
+import { Inside } from './pages/Inside';
+import { Practice } from './pages/Practice';
+import { DesignReview } from './pages/DesignReview';
+import { Incident } from './pages/Incident';
+import { Adr } from './pages/Adr';
 
 class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
   state: { error?: Error } = {};
@@ -36,6 +41,12 @@ export default function SystemDesignModule() {
           <Route index element={<Home />} />
           <Route path="review" element={<Review />} />
           <Route path="method" element={<Method />} />
+          <Route path="inside" element={<Inside />} />
+          <Route path="inside/:kind" element={<Inside />} />
+          <Route path="practice" element={<Practice />} />
+          <Route path="practice/review/:id" element={<DesignReview />} />
+          <Route path="practice/incident/:id" element={<Incident />} />
+          <Route path="practice/adr/:id" element={<Adr />} />
           <Route path="p/:id" element={<PatternPage />} />
           <Route path="p/:id/:mode" element={<PatternPage />} />
           <Route path="*" element={<Home />} />

@@ -4,8 +4,10 @@ import { ArrowRight, BookOpen, Brain, Building2, CheckCircle2, Eye, Footprints, 
 import { cn } from '@/shared/cn';
 import { Button, Callout, StepControls, Tag, useStepper } from '@/shared/ui';
 import { COMPONENTS } from '../data/components';
-import { nodeFeedback } from '../engine/evaluate';
+import { diffEval } from '../engine/diff';
+import { evaluate, nodeFeedback } from '../engine/evaluate';
 import { guidedFrame } from '../engine/graph';
+import { ChangeCard } from '../ui/ChangeLog';
 import { simulate } from '../engine/simulate';
 import { useSd } from '../store';
 import type { Graph, Pattern, StepTag, Verdict } from '../types';
@@ -69,6 +71,16 @@ export function Learn({ pattern: p }: { pattern: Pattern }) {
   const traffic = trafficOverride ?? frame.traffic;
   const wl = p.scenario.workload;
   const sim = useMemo(() => simulate(graph, wl, { traffic }), [graph, wl, traffic]);
+
+  /** What this narrated step did to the system, measured: previous step's design vs this one. */
+  const stepChange = useMemo(() => {
+    if (step === 0 || !revealed) return null;
+    const prev = guidedFrame(p, step - 1, true);
+    const before = { ev: evaluate(prev.graph, p.scenario, prev.traffic), graph: prev.graph };
+    const after = { ev: evaluate(frame.graph, p.scenario, frame.traffic), graph: frame.graph };
+    const added = frame.added[0];
+    return diffEval(added ? 'add' : st.kill?.length ? 'kill' : frame.traffic !== prev.traffic ? 'traffic' : 'connect', st.title, before, after, added);
+  }, [p, step, revealed, frame, st]);
 
   const nodeVerdicts = useMemo(() => {
     const v: Record<string, Verdict> = {};
@@ -181,6 +193,12 @@ export function Learn({ pattern: p }: { pattern: Pattern }) {
                     <Rich text={st.keyIdea} />
                   </span>
                 </Callout>
+              )}
+              {stepChange && (
+                <div>
+                  <div className="eyebrow mb-1">What this step changed</div>
+                  <ChangeCard c={stepChange} />
+                </div>
               )}
               {revealed && st.goodToKnow && (
                 <Callout tone="info" title="Good to know">

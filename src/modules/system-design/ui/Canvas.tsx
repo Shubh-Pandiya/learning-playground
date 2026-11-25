@@ -42,6 +42,8 @@ export interface CanvasProps {
   onConnect?: (from: string, to: string) => void;
   onDeleteNodes?: (ids: string[]) => void;
   onDeleteEdges?: (ids: string[]) => void;
+  onEdgeClick?: (id: string) => void;
+  nodeBadges?: Record<string, string>;
   /** Re-fit the viewport whenever this changes. */
   fitKey?: string;
 }
@@ -77,9 +79,10 @@ function CanvasInner(p: CanvasProps) {
           sim: p.sim.nodes[n.id],
           verdict: p.nodeVerdicts?.[n.id],
           fresh: p.fresh?.includes(n.id),
+          badge: p.nodeBadges?.[n.id],
         },
       })),
-    [p.graph.nodes, p.sim, p.nodeVerdicts, p.fresh, p.selectedId, p.editable],
+    [p.graph.nodes, p.sim, p.nodeVerdicts, p.fresh, p.selectedId, p.editable, p.nodeBadges],
   );
 
   // Local copy so React Flow can track drag positions and measured sizes between commits.
@@ -170,6 +173,7 @@ function CanvasInner(p: CanvasProps) {
         onNodeDragStop={(_, n) => onMove?.(n.id, Math.round(n.position.x), Math.round(n.position.y))}
         onNodeClick={(_, n) => onSelect(n.id)}
         onPaneClick={() => onSelect(null)}
+        onEdgeClick={(_, e) => p.onEdgeClick?.(e.id)}
         onConnect={(c: Connection) => {
           if (c.source && c.target && c.source !== c.target) connect?.(c.source, c.target);
         }}

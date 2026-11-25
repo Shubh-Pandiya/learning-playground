@@ -4,11 +4,13 @@ import { ArrowRight, Eraser, Lightbulb, PartyPopper, X } from 'lucide-react';
 import { cn } from '@/shared/cn';
 import { Button, Callout, Tag } from '@/shared/ui';
 import { COMPONENTS } from '../data/components';
+import { diffEval, type ChangeAction, type ChangeEntry } from '../engine/diff';
 import { edgeFeedback, evaluate, hint, nodeFeedback } from '../engine/evaluate';
 import { edgeId, toGNode } from '../engine/graph';
 import { canvasKey, useSd } from '../store';
 import type { ComponentKind, GNode, Graph, Pattern, Scenario } from '../types';
 import { Canvas } from '../ui/Canvas';
+import { ChangeCard, ChangeLog } from '../ui/ChangeLog';
 import { FeedbackCard, feedbackFromNode, Inspector, type FeedbackItem } from '../ui/Inspector';
 import { Capabilities, ClosenessView, MetricStrip } from '../ui/Metrics';
 import { Palette } from '../ui/Palette';
@@ -16,7 +18,11 @@ import { Rich } from '../ui/Rich';
 import { TrafficBar } from '../ui/TrafficBar';
 import { fmtPct, fmtQps } from '../ui/format';
 
-type Tab = 'design' | 'capabilities';
+type Tab = 'design' | 'changes' | 'capabilities';
+
+const TAB_LABEL: Record<Tab, string> = { design: 'Feedback', changes: 'Changes', capabilities: 'Capabilities' };
+/** Repeated edits of the same kind to the same thing collapse into one log entry. */
+const MERGEABLE: ChangeAction[] = ['scale', 'traffic', 'kill'];
 
 function initialGraph(s: Scenario): Graph {
   return { nodes: s.reference.nodes.filter((n) => n.kind === 'client').map(toGNode), edges: [] };
@@ -57,6 +63,19 @@ export function Workbench({ pattern, mode }: { pattern: Pattern; mode: 'build' |
   const maxHint = mode === 'challenge' ? 2 : 3;
 
   const ev = useMemo(() => evaluate(graph, s, traffic), [graph, s, traffic]);
+  const [log, setLog] = useState<ChangeEntry[]>([]);
+
+  /** Apply a change and record what it did to the system's capabilities. */
+  const commit = (next: Graph, action: ChangeAction, title: string, subject?: string, nextTraffic = traffic) => {
+    const after = { ev: evaluate(next, s, nextTraffic), graph: next };
+    setLog((xs) => {
+      const last = xs[0];
+      const merge = last && MERGEABLE.includes(action) && last.action === action && last.subject === subject && Date.now() - last.at < 60_000;
+      const entry = diffEval(action, title, merge ? last.before : { ev, graph }, after, subject);
+      return [entry, ...(merge ? xs.slice(1) : xs)].slice(0, 40);
+    });
+    if (next !== graph) setGraph(next);
+  };
 
   // persist (without injected failures)
   useEffect(() => {
@@ -79,7 +98,7 @@ export function Workbench({ pattern, mode }: { pattern: Pattern; mode: 'build' |
   const addNode = (kind: ComponentKind, x?: number, y?: number) => {
     const pos = x === undefined || y === undefined ? nextPos(graph, s, kind) : { x, y };
     const n: GNode = { id: uid(kind), kind, count: 1, ...pos };
-    setGraph((g) => ({ ...g, nodes: [...g.nodes, n] }));
+    commit({ ...graph, nodes: [...graph.nodes, n] }, 'add', `Added ${COMPONENTS[kind].name}`, n.id);
     push(feedbackFromNode(n.id, nodeFeedback(s, kind), COMPONENTS[kind].usedBy));
     setFresh([n.id]);
     setTab('design');
@@ -92,7 +111,7 @@ export function Workbench({ pattern, mode }: { pattern: Pattern; mode: 'build' |
     const a = byId.get(from);
     const b = byId.get(to);
     if (!a || !b) return;
-    setGraph((g) => ({ ...g, edges: [...g.edges, { id, from, to }] }));
+    commit({ ...graph, edges: [...graph.edges, { id, from, to }] }, 'connect', `${nameOf(from)} → ${nameOf(to)}`, id);
     const fb = edgeFeedback(s, a, b);
     push({
       key: id,
@@ -104,14 +123,34 @@ export function Workbench({ pattern, mode }: { pattern: Pattern; mode: 'build' |
   };
 
   const deleteNodes = (ids: string[]) => {
-    setGraph((g) => ({
-      nodes: g.nodes.filter((n) => !ids.includes(n.id) || n.kind === 'client'),
-      edges: g.edges.filter((e) => !ids.includes(e.from) && !ids.includes(e.to)),
-    }));
+    const gone = graph.nodes.filter((n) => ids.includes(n.id) && n.kind !== 'client');
+    if (!gone.length) return;
+    commit(
+      {
+        nodes: graph.nodes.filter((n) => !gone.includes(n)),
+        edges: graph.edges.filter((e) => !gone.some((n) => n.id === e.from || n.id === e.to)),
+      },
+      'remove',
+      `Removed ${gone.map((n) => nameOf(n.id)).join(', ')}`,
+    );
     if (selected && ids.includes(selected)) setSelected(null);
   };
-  const deleteEdges = (ids: string[]) => setGraph((g) => ({ ...g, edges: g.edges.filter((e) => !ids.includes(e.id)) }));
+  const deleteEdges = (ids: string[]) => {
+    const gone = graph.edges.filter((e) => ids.includes(e.id));
+    if (!gone.length) return;
+    commit({ ...graph, edges: graph.edges.filter((e) => !ids.includes(e.id)) }, 'disconnect', gone.map((e) => `${nameOf(e.from)} ↛ ${nameOf(e.to)}`).join(', '));
+  };
   const patchNode = (id: string, f: (n: GNode) => Partial<GNode>) => setGraph((g) => ({ ...g, nodes: g.nodes.map((n) => (n.id === id ? { ...n, ...f(n) } : n)) }));
+  const changeNode = (id: string, f: (n: GNode) => Partial<GNode>, action: ChangeAction, title: (n: GNode) => string) => {
+    const next = { ...graph, nodes: graph.nodes.map((n) => (n.id === id ? { ...n, ...f(n) } : n)) };
+    const n = next.nodes.find((x) => x.id === id);
+    if (n) commit(next, action, title(n), id);
+  };
+  const changeTraffic = (t: number) => {
+    if (t === traffic) return;
+    commit(graph, 'traffic', `Traffic set to ${t}× peak`, 'traffic', t);
+    setTraffic(t);
+  };
 
   const onCanvas = useMemo(() => {
     const c: Record<string, number> = {};
@@ -176,11 +215,11 @@ export function Workbench({ pattern, mode }: { pattern: Pattern; mode: 'build' |
         <div className="pointer-events-none absolute bottom-3 left-3 flex">
           <TrafficBar
             traffic={traffic}
-            setTraffic={setTraffic}
+            setTraffic={changeTraffic}
             animate={animate}
             setAnimate={setAnimate}
             anyDown={anyDown}
-            onRestoreAll={() => setGraph((g) => ({ ...g, nodes: g.nodes.map((n) => ({ ...n, down: 0 })) }))}
+            onRestoreAll={() => commit({ ...graph, nodes: graph.nodes.map((n) => ({ ...n, down: 0 })) }, 'restore', 'Restored all failed instances')}
           />
         </div>
         {graph.nodes.length <= 1 && (
@@ -226,6 +265,12 @@ export function Workbench({ pattern, mode }: { pattern: Pattern; mode: 'build' |
               <span className="eyebrow">Component</span>
               <Button size="xs" variant="ghost" iconOnly aria-label="Close" icon={<X size={14} />} onClick={() => setSelected(null)} />
             </div>
+            {log[0]?.subject === sel.id && log[0].action !== 'add' && (
+              <div className="mb-3">
+                <div className="eyebrow mb-1">Impact of your last change</div>
+                <ChangeCard c={log[0]} />
+              </div>
+            )}
             <Inspector
               key={sel.id}
               node={sel}
@@ -237,9 +282,16 @@ export function Workbench({ pattern, mode }: { pattern: Pattern; mode: 'build' |
                 .filter((e) => (e.from === sel.id || e.to === sel.id) && ev.close.edgeVerdicts[e.id] === 'wrong')
                 .map((e) => `${nameOf(e.from)} → ${nameOf(e.to)}: ${ev.close.edgeNotes[e.id]}`)}
               editable
-              onCount={(d) => patchNode(sel.id, (n) => ({ count: Math.max(1, Math.min(20, n.count + d)), down: Math.min(n.down ?? 0, Math.max(1, n.count + d)) }))}
-              onKill={() => patchNode(sel.id, (n) => ({ down: Math.min(n.count, (n.down ?? 0) + 1) }))}
-              onRestore={() => patchNode(sel.id, () => ({ down: 0 }))}
+              onCount={(d) =>
+                changeNode(
+                  sel.id,
+                  (n) => ({ count: Math.max(1, Math.min(20, n.count + d)), down: Math.min(n.down ?? 0, Math.max(1, n.count + d)) }),
+                  'scale',
+                  (n) => `Scaled ${nameOf(n.id)} to ${n.count} instance${n.count > 1 ? 's' : ''}`,
+                )
+              }
+              onKill={() => changeNode(sel.id, (n) => ({ down: Math.min(n.count, (n.down ?? 0) + 1) }), 'kill', (n) => `Killed ${n.down} of ${n.count} ${nameOf(n.id)}`)}
+              onRestore={() => changeNode(sel.id, () => ({ down: 0 }), 'restore', (n) => `Restored ${nameOf(n.id)}`)}
               onDelete={sel.kind === 'client' ? undefined : () => deleteNodes([sel.id])}
               onPredicted={recordChaos}
             />
@@ -247,19 +299,31 @@ export function Workbench({ pattern, mode }: { pattern: Pattern; mode: 'build' |
         ) : (
           <>
             <div className="flex border-b border-line">
-              {(['design', 'capabilities'] as Tab[]).map((t) => (
+              {(['design', 'changes', 'capabilities'] as Tab[]).map((t) => (
                 <button
                   key={t}
                   onClick={() => setTab(t)}
                   className={cn('flex-1 py-2 font-mono text-[11px] uppercase tracking-wider', tab === t ? 'border-b-2 border-accent text-ink' : 'text-faint hover:text-muted')}
                 >
-                  {t === 'design' ? 'Feedback & score' : 'Capabilities'}
+                  {TAB_LABEL[t]}
+                  {t === 'changes' && log.length > 0 && <span className="ml-1 rounded bg-sunken px-1 text-[10px] text-muted">{log.length}</span>}
                 </button>
               ))}
             </div>
             <div className="flex-1 space-y-3 overflow-y-auto p-3.5">
               {tab === 'design' ? (
                 <>
+                  {log[0] && Date.now() - log[0].at < 120_000 && (
+                    <div>
+                      <div className="mb-1 flex items-center justify-between">
+                        <span className="eyebrow">What just changed</span>
+                        <button className="font-mono text-[10.5px] text-faint hover:text-ink" onClick={() => setTab('changes')}>
+                          full log →
+                        </button>
+                      </div>
+                      <ChangeCard c={log[0]} />
+                    </div>
+                  )}
                   {feed.length > 0 && (
                     <div className="space-y-2">
                       <FeedbackCard f={feed[0]} />
@@ -294,6 +358,8 @@ export function Workbench({ pattern, mode }: { pattern: Pattern; mode: 'build' |
                     )}
                   </div>
                 </>
+              ) : tab === 'changes' ? (
+                <ChangeLog log={log} />
               ) : (
                 <Capabilities m={ev.sim.metrics} wl={wl} traffic={traffic} nameOf={nameOf} />
               )}
@@ -307,6 +373,7 @@ export function Workbench({ pattern, mode }: { pattern: Pattern; mode: 'build' |
                     clearCanvas(pattern.id, mode);
                     setGraph(initialGraph(s));
                     setFeed([]);
+                    setLog([]);
                     setSelected(null);
                   }}
                 >

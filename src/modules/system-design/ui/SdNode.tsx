@@ -19,6 +19,8 @@ export interface SdNodeData extends Record<string, unknown> {
   fresh?: boolean;
   /** Dimmed (e.g. not yet revealed). */
   ghost?: boolean;
+  /** Replaces the verdict badge text (e.g. "flagged: SPOF" in design reviews). */
+  badge?: string;
 }
 
 export type SdFlowNode = Node<SdNodeData, 'sd'>;
@@ -77,10 +79,13 @@ function SdNodeView({ data, selected }: NodeProps<SdFlowNode>) {
         </span>
       )}
       {wrong && (
-        <span className="absolute -left-2 -top-2 rounded-full bg-bad px-1.5 font-mono text-[10px] font-bold text-paper">✗ wrong</span>
+        <span className="absolute -left-2 -top-2 whitespace-nowrap rounded-full bg-bad px-1.5 font-mono text-[10px] font-bold text-paper">{data.badge ?? '✗ wrong'}</span>
       )}
       {data.verdict === 'extra' && (
-        <span className="absolute -left-2 -top-2 rounded-full bg-warn px-1.5 font-mono text-[10px] font-bold text-paper">extra</span>
+        <span className="absolute -left-2 -top-2 whitespace-nowrap rounded-full bg-warn px-1.5 font-mono text-[10px] font-bold text-paper">{data.badge ?? 'extra'}</span>
+      )}
+      {data.verdict === 'good' && data.badge && (
+        <span className="absolute -left-2 -top-2 whitespace-nowrap rounded-full bg-ok px-1.5 font-mono text-[10px] font-bold text-paper">{data.badge}</span>
       )}
 
       <div className="relative">

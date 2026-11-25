@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { Building2, Minus, Plus, RotateCcw, Skull, Trash2, Zap } from 'lucide-react';
+import { Building2, Cpu, Minus, Plus, RotateCcw, Skull, Trash2, Zap } from 'lucide-react';
 import { cn } from '@/shared/cn';
-import { Button, Callout, Tag } from '@/shared/ui';
+import { Button, Callout, SidePanel, Tag } from '@/shared/ui';
 import { COMPONENTS } from '../data/components';
+import { getInternals } from '../internals';
+import { InternalsView } from '../internals/InternalsView';
 import type { NodeFeedback } from '../engine/evaluate';
 import { OUTCOMES, predictKill, type Metrics, type NodeSim, type Outcome } from '../engine/simulate';
 import type { GNode, Graph, Workload } from '../types';
@@ -93,6 +95,8 @@ export interface InspectorProps {
 export function Inspector(p: InspectorProps) {
   const def = COMPONENTS[p.node.kind];
   const [predicting, setPredicting] = useState(false);
+  const [inside, setInside] = useState(false);
+  const hasInternals = !!getInternals(p.node.kind);
   const [result, setResult] = useState<{ guess: Outcome; actual: Outcome; text: string } | null>(null);
   const alive = p.node.count - (p.node.down ?? 0);
   const sim = p.sim;
@@ -134,6 +138,21 @@ export function Inspector(p: InspectorProps) {
           )}
         </div>
       </div>
+      {hasInternals && (
+        <button
+          onClick={() => setInside(true)}
+          className="flex w-full items-center gap-2 rounded-lg border border-violet/40 bg-violet/[0.06] px-2.5 py-2 text-left transition hover:bg-violet/[0.12]"
+        >
+          <Cpu size={16} className="shrink-0 text-violet" />
+          <span className="min-w-0 flex-1">
+            <span className="block font-mono text-[12px] font-semibold">Look inside: how it’s built</span>
+            <span className="block text-[11px] text-muted">Anatomy · assemble it · design knobs · interactive lab</span>
+          </span>
+        </button>
+      )}
+      <SidePanel open={inside} onClose={() => setInside(false)} eyebrow="Component internals" title={def.name} widthClassName="w-[min(760px,94vw)]" overlay>
+        {inside && <InternalsView kind={p.node.kind} />}
+      </SidePanel>
       {sim?.note && <p className="rounded-md bg-warn/10 px-2 py-1.5 text-[12px] leading-snug text-warn">{sim.note}</p>}
 
       <div className="flex flex-wrap items-center gap-1.5">

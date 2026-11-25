@@ -15,6 +15,18 @@ Every mechanic below comes from learning research. The same list is shown in the
 
 A pattern counts as **mastered** once its Challenge is solved.
 
+## Beyond patterns: internals and judgment
+
+| Surface | Route | What you do | Why |
+| --- | --- | --- | --- |
+| **Change log** | Build/Challenge → *Changes* tab; Learn step card | Every add, remove, connect, scale, kill or traffic change records a before→after metric diff (p99, capacity, errors, availability, cost, durability), the load shift per node, new risks, and requirements met or broken. | Causal feedback, signalling |
+| **Inside** | `/system-design/inside`, `/inside/:kind`, or "Look inside" on any selected component | Animated request path through the component's parts, drag-to-order Assemble, design knobs, implementations (Nginx/HAProxy/Envoy, Redis, Postgres/RocksDB…), HA, failure modes, napkin numbers, interview questions with reveal-after-answering, and labs. Kafka-flavoured parts link to `/kafka`. | Mental models, generation, productive play |
+| **Design review** | `/system-design/practice/review/:id` | Critique a flawed design: test it live, flag nodes and edges, and classify each flaw. Scored against an expert critique, with penalties for false alarms. | Erroneous examples, error detection |
+| **Incident drill** | `/system-design/practice/incident/:id` | On-call page with a live broken system. Answer triage → root cause → mitigate → prevent, then read the postmortem, a real-world parallel, and recover. | Case-based, deliberate practice |
+| **ADR-lite** | `/system-design/practice/adr/:id` | Choose an option and write Decision / Because / We accept / Revisit when, then compare with the expert ADR. Considerations are keyword-detected, with self-ticking for half credit. | Self-explanation, metacognition |
+
+Labs (`internals/labs/*`) are small, deterministic simulations: change an algorithm or config and watch the effect. They cover LB algorithms with health-check and drain, cache eviction (LRU/LFU/FIFO/TTL), rate-limit algorithms, B-tree vs LSM, consistent-hash ring with vnodes, bloom filter, inverted index, circuit breaker, and queue backlog with autoscaling.
+
 ## Principles applied
 
 1. **Worked example → faded guidance** (Sweller, Renkl). Learn mode builds the reference step by step. Build keeps feedback and 3 hint levels. Challenge allows 2 hints and hides the missing-parts list.
@@ -27,6 +39,11 @@ A pattern counts as **mastered** once its Challenge is solved.
 8. **Transfer** (Gick & Holyoak). Every Challenge keeps the same deep structure but changes the surface story and numbers.
 9. **Concrete anchors** (elaborative encoding). Each pattern lists real systems that use it, and each component lists production tech.
 10. **Failure as a teacher** (productive failure; Kapur). Chaos tools (kill an instance, 0.5×–10× traffic) let you break your own design and see SPOFs, cascades and backlogs.
+11. **Causal feedback** (Mayer's signalling and contiguity). Each change is shown alongside its measured effect and new risks, so you never have to infer cause from a moving dashboard.
+12. **Mechanism over label** (Chi, expert–novice). Inside views and labs teach *how* an LB, Redis, a B-tree or an LSM work, so you can reason about components you've never seen. Assemble drills make you generate the structure.
+13. **Erroneous examples** (Große & Renkl). Design reviews train spotting flaws in plausible designs, which is a core senior skill. False-alarm penalties teach you to verify before objecting.
+14. **Deliberate, case-based practice** (Ericsson, Klein). Incident drills rehearse decisions under pressure with immediate explanation and blameless postmortems.
+15. **Self-explanation + expert comparison** (Chi, Dunlosky). ADR-lite makes you commit and justify before seeing the expert reasoning, which exposes the forces you missed.
 
 ## Patterns (20)
 
@@ -41,4 +58,7 @@ A pattern counts as **mastered** once its Challenge is solved.
 - `data/patterns/*` holds each pattern as data: scenario, workload, requirements, reference graph, guided steps, per-scenario wrong-component notes, a challenge, and quizzes.
 - `engine/simulate.ts` is a napkin-math flow model. It routes read/write traffic through the graph and computes QPS, p99, errors, availability/SPOFs, durability, consistency and cost.
 - `engine/evaluate.ts` checks the requirements, scores closeness to the reference, and generates node/edge verdicts and hints.
-- `store.ts` handles progress, saved canvases and spaced-repetition cards, persisted in localStorage under `lp:sd:progress`.
+- `engine/diff.ts` diffs two evaluations into a change-log entry. `ui/ChangeLog.tsx` renders it.
+- `internals/` holds the per-component internals content (`data/*.ts`, typed by `internals/types.ts`), the views (`Anatomy`, `Assemble`, `InternalsView`) and the labs.
+- `judgment/` holds review, incident and ADR cases (`data/*.ts`) and the drill pages are in `pages/{Practice,DesignReview,Incident,Adr}.tsx`.
+- `store.ts` handles progress (including internals seen, assembled and lab, drill best scores and ADR drafts), saved canvases and spaced-repetition cards, persisted in localStorage under `lp:sd:progress`.
