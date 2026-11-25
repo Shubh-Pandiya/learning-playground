@@ -1,28 +1,12 @@
 import { NavLink, Outlet, Link } from 'react-router-dom';
-import { Moon, Settings, Sun } from 'lucide-react';
+import { Settings } from 'lucide-react';
 import { cn } from '@/shared/cn';
-import { useTheme } from '@/shared/theme/theme';
+import { ThemeToggle } from '@/shared/ui';
 
 const navItems = [
   { to: '/dsa', label: 'DSA Patterns' },
   { to: '/system-design', label: 'System Design' },
 ];
-
-export function ThemeToggle() {
-  const theme = useTheme((s) => s.theme);
-  const toggle = useTheme((s) => s.toggle);
-  return (
-    <button
-      type="button"
-      onClick={toggle}
-      aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-      title={theme === 'dark' ? 'Light theme' : 'Dark theme'}
-      className="inline-flex h-8 w-8 items-center justify-center rounded text-muted transition-colors hover:bg-ink/5 hover:text-ink"
-    >
-      {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-    </button>
-  );
-}
 
 /**
  * Header is fixed at h-14 (3.5rem). Full-height module views can use
