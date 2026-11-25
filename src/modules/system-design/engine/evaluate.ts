@@ -15,6 +15,8 @@ export interface NodeFeedback {
   instead?: string;
 }
 
+const article = (name: string) => `${/^[AEIOU]/i.test(name) ? 'an' : 'a'} ${name}`;
+
 const refKinds = (s: Scenario) => new Set(s.reference.nodes.map((n) => n.kind));
 
 export function nodeFeedback(s: Scenario, kind: ComponentKind): NodeFeedback {
@@ -186,7 +188,7 @@ export function closeness(g: Graph, s: Scenario, reqs: ReqResult[]): Closeness {
     max += 2;
     const h = have.get(k) ?? 0;
     got += 2 * Math.min(1, h / need);
-    if (h === 0) missing.push(`Add a ${COMPONENTS[k].name}`);
+    if (h === 0) missing.push(`Add ${article(COMPONENTS[k].name)}`);
     else if (h < need) missing.push(`Scale ${COMPONENTS[k].name} to ${need} instances (have ${h})`);
   }
 
@@ -311,7 +313,7 @@ export function hint(g: Graph, s: Scenario, ev: Evaluation, level: 1 | 2 | 3): s
   const nextRef = s.reference.nodes.find((n) => !kinds.has(n.kind));
   if (level === 1) return unmet ? `"${unmet.req.text}" — ${unmet.req.hint}` : (ev.close.missing[0] ?? 'Everything is in place — try breaking it with the chaos tools.');
   if (level === 2 && nextRef) return `Think about ${CAT_HINT[COMPONENTS[nextRef.kind].category]}.`;
-  if (nextRef) return `Add a ${COMPONENTS[nextRef.kind].name} — ${nextRef.why}`;
+  if (nextRef) return `Add ${article(COMPONENTS[nextRef.kind].name)} — ${nextRef.why}`;
   return ev.close.missing[0] ?? 'Nothing missing.';
 }
 

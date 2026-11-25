@@ -659,7 +659,10 @@ function syncReach(ctx: Ctx, from: string[], skip?: string): Set<string> {
 
 /** Copies of the data (durability) or automatically-failing-over instances (availability). */
 function redundancy(ctx: Ctx, n: GNode, forAvailability: boolean): number {
-  let k = aliveOf(n);
+  const parents = ctx.inn.get(n.id) ?? [];
+  const partitioned = parents.length > 0 && parents.every((e) => PARTITIONERS.includes(ctx.byId.get(e.from)!.kind));
+  // key-routed partitions each own unique data: N shards are N single copies, not N copies
+  let k = partitioned && !forAvailability ? Math.min(1, aliveOf(n)) : aliveOf(n);
   const hasReplica = (ctx.out.get(n.id) ?? []).some((e) => ctx.byId.get(e.to)!.kind === 'replica');
   // a replica is another copy; it only counts for uptime if something promotes it automatically
   if (hasReplica && (!forAvailability || ctx.coordinated.has(n.id))) k += 1;

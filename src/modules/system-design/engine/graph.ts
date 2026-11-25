@@ -33,8 +33,9 @@ export interface GuidedFrame {
   removed: string[];
 }
 
-/** Graph state at a guided step: cumulative adds/removes, this step's kills and traffic. */
-export function guidedFrame(p: Pattern, step: number): GuidedFrame {
+/** Graph state at a guided step: cumulative adds/removes, this step's kills and traffic.
+ * With `reveal = false` the step's kills/traffic are not applied yet (predict-before-reveal). */
+export function guidedFrame(p: Pattern, step: number, reveal = true): GuidedFrame {
   const visible = new Set<string>();
   let added: string[] = [];
   let removed: string[] = [];
@@ -49,6 +50,6 @@ export function guidedFrame(p: Pattern, step: number): GuidedFrame {
   const allEdges = [...p.scenario.reference.edges, ...(p.extras?.edges ?? [])];
   let graph = toGraph(allNodes, allEdges, visible);
   const st = p.guided[Math.min(step, p.guided.length - 1)];
-  for (const id of st?.kill ?? []) if (visible.has(id)) graph = killOne(graph, id);
-  return { graph, visible, traffic: st?.traffic ?? 1, added, removed };
+  if (reveal) for (const id of st?.kill ?? []) if (visible.has(id)) graph = killOne(graph, id);
+  return { graph, visible, traffic: reveal ? st?.traffic ?? 1 : 1, added, removed };
 }
