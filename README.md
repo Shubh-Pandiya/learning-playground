@@ -13,20 +13,25 @@ interleaves due reviews and next steps from every module.
 
 ## Start
 
-On a fresh laptop:
+On a fresh laptop (needs **Node.js 20.19+ or 22.12+** and git; macOS: `brew install node`,
+otherwise https://nodejs.org):
 
 ```bash
-git clone https://github.com/Shubh-Pandiya/learning-playground.git && cd learning-playground && ./start.sh
+git clone https://github.com/Shubh-Pandiya/learning-playground.git
+cd learning-playground
+./start.sh        # macOS / Linux
+# or: npm start   # any OS
+# or: start.cmd   # Windows (double-click or run in cmd)
 ```
 
-Afterwards, from the repo:
+All three do the same thing:
+1. Check the Node version.
+2. Run `npm install --include=dev` if dependencies are missing, incomplete or out of date
+   (package-lock.json changed). This also works when your npm is set to skip devDependencies
+   (`NODE_ENV=production`, `omit=dev`).
+3. Start the app and open the browser.
 
-```bash
-./start.sh        # installs deps on first run (or when package-lock.json changed), then starts and opens the browser
-                  # (if the app is already running on :5199 it just opens the browser)
-# or
-npm start         # if deps are already installed
-```
+If `./start.sh` finds the app already running on :5199, it just opens the browser.
 
 The app runs at **http://localhost:5199** (fixed host + port, `strictPort`). Progress is
 saved in your browser's localStorage, which is per-origin — always use this exact URL
@@ -52,7 +57,7 @@ laptop with a clone, and no GitHub login is needed because the repo is public.
 
 - It checks 3 s after start and then **every 30 minutes**: `git fetch origin main`.
 - If there are new commits, it runs `git pull --ff-only` (fast-forward only), and the page reloads via HMR.
-  - If `package.json` or `package-lock.json` changed, it runs `npm install`.
+  - If `package.json` or `package-lock.json` changed, it runs `npm install --include=dev`.
   - If `package.json`/the lockfile, `vite.config.ts`, Tailwind/PostCSS config, `tsconfig.json` or `scripts/` changed, the dev server restarts automatically.
 - A small toast shows **"Updated to abc1234 — What's new"** with the pulled commits.
 - **It never overwrites your work.** It skips the pull and shows an "update skipped"
@@ -80,7 +85,9 @@ How it works:
 
 ## Requirements
 
-Node.js 20+ (`brew install node`).
+Node.js 20.19+ or 22.12+ (required by Vite 8; declared in `package.json` `engines`). On macOS: `brew install node`.
+
+If you see `Cannot find module …/node_modules/vite/bin/vite.js`, you are on an older checkout. Run `git pull`, or `npm install --include=dev`, then start again.
 
 ## Scripts
 

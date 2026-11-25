@@ -79,7 +79,8 @@ function run(cmd: string, args: string[], cwd: string, timeoutMs = 60_000): Prom
         cwd,
         timeout: timeoutMs,
         maxBuffer: 16 * 1024 * 1024,
-        shell: process.platform === 'win32',
+        // .cmd shims (npm.cmd) need a shell on Windows; git.exe must not get one (its args contain %).
+        shell: cmd.endsWith('.cmd'),
         env: {
           ...process.env,
           GIT_TERMINAL_PROMPT: '0',
@@ -230,7 +231,7 @@ export function createUpdater(opts: UpdaterOptions) {
       if (needsInstall) {
         log('dependencies changed → npm install');
         try {
-          await run(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['install', '--no-audit', '--no-fund'], cwd, 10 * 60_000);
+          await run(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['install', '--include=dev', '--no-audit', '--no-fund'], cwd, 10 * 60_000);
         } catch (e) {
           status.lastUpdate = { from, to: status.currentSha, at: new Date().toISOString(), commits, installed: false, restarted: false };
           save();

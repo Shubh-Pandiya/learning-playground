@@ -19,17 +19,12 @@ if curl -fsS --max-time 2 "$URL/" 2>/dev/null | grep -q "Learning Playground"; t
   exit 0
 fi
 
-if ! command -v npm >/dev/null 2>&1; then
-  echo "npm not found. Install Node.js first: brew install node" >&2
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+  echo "Node.js not found. Install Node 20.19+ or 22.12+ (macOS: brew install node, or https://nodejs.org)." >&2
   exit 1
 fi
 
-# First run, or package-lock.json changed since the last install (e.g. after a git pull).
-if [[ ! -d node_modules || package-lock.json -nt node_modules/.package-lock.json ]]; then
-  echo "Installing dependencies…"
-  npm install --no-fund --no-audit
-fi
-
-# npm start = scripts/start.mjs: runs Vite plus the GitHub auto-updater (checks every 30 min).
-
+# npm start = scripts/start.mjs: checks the Node version, installs dependencies (incl. dev)
+# when Vite is missing or package-lock.json changed, then runs Vite plus the GitHub
+# auto-updater (checks every 30 min).
 exec npm start
