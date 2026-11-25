@@ -1,13 +1,14 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath, URL } from 'node:url';
+import { autoUpdate } from './scripts/auto-update.ts';
 
 // Fixed host + port: progress lives in localStorage, which is per-origin.
 // Changing the port would make saved progress "disappear".
 export const PORT = 5199;
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), autoUpdate()],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -25,6 +26,7 @@ export default defineConfig({
     host: 'localhost',
     port: PORT,
     strictPort: true,
+    watch: { ignored: ['**/.tools/**', '**/dist/**'] },
   },
   preview: {
     host: 'localhost',

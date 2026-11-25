@@ -24,9 +24,12 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ ! -d node_modules ]]; then
+# First run, or package-lock.json changed since the last install (e.g. after a git pull).
+if [[ ! -d node_modules || package-lock.json -nt node_modules/.package-lock.json ]]; then
   echo "Installing dependencies…"
   npm install --no-fund --no-audit
 fi
+
+# npm start = scripts/start.mjs: runs Vite plus the GitHub auto-updater (checks every 30 min).
 
 exec npm start

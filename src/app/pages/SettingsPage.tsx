@@ -9,6 +9,7 @@ import {
 } from '@/shared/progress';
 import { Button, Callout, Card, CardHeader, Tag, type Tone } from '@/shared/ui';
 import { allModules } from '../modules';
+import { UpdatesCard } from './UpdatesCard';
 
 type Status = { tone: 'ok' | 'bad'; text: string } | null;
 
@@ -111,6 +112,8 @@ export default function SettingsPage() {
           </Button>
         </Card>
       </div>
+
+      <UpdatesCard />
 
       <Card className="mt-4" tone="bad">
         <CardHeader eyebrow="Danger zone" title="Reset" description="Click once, then click again to confirm." />

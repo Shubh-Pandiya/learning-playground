@@ -5,6 +5,7 @@ import { cn } from '@/shared/cn';
 import { ThemeToggle } from '@/shared/ui';
 import { tracks } from './modules';
 import { useActivity } from './today';
+import { UpdateIndicator } from './UpdateIndicator';
 
 /**
  * Header is fixed at h-14 (3.5rem). Full-height module views can use
@@ -49,6 +50,7 @@ export function AppLayout() {
             ))}
           </nav>
           <div className="ml-auto flex items-center gap-1">
+            <UpdateIndicator />
             <NavLink
               to="/settings"
               aria-label="Settings"
