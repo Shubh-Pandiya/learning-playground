@@ -38,8 +38,9 @@ export function createPersistedStore<T>(
       name: storageKey(namespace, name),
       storage: createJSONStorage(() => localStorage),
       version: options.version ?? 0,
-      migrate: options.migrate,
-      partialize: options.partialize,
+      // Only pass optional hooks when defined: explicit `undefined` overrides zustand's defaults.
+      ...(options.migrate && { migrate: options.migrate }),
+      ...(options.partialize && { partialize: options.partialize }),
     }),
   );
 }
