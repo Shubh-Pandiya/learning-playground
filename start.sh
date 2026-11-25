@@ -10,6 +10,15 @@ for p in /opt/homebrew/bin /usr/local/bin; do
 done
 export PATH
 
+URL="http://localhost:5199"
+
+# Already running (e.g. in another terminal)? Just open it instead of failing on the fixed port.
+if curl -fsS --max-time 2 "$URL/" 2>/dev/null | grep -q "Learning Playground"; then
+  echo "Learning Playground is already running at $URL — opening it."
+  command -v open >/dev/null 2>&1 && open "$URL" || echo "Open $URL in your browser."
+  exit 0
+fi
+
 if ! command -v npm >/dev/null 2>&1; then
   echo "npm not found. Install Node.js first: brew install node" >&2
   exit 1

@@ -15,6 +15,7 @@ interleaves due reviews and next steps from every module.
 
 ```bash
 ./start.sh        # installs deps on first run, then starts and opens the browser
+                  # (if the app is already running on :5199 it just opens the browser)
 # or
 npm start         # if deps are already installed
 ```

@@ -1,6 +1,6 @@
 import type { ModuleId, PlanItem, ProgressSummary } from '@/shared/progress';
 import { createPersistedStore } from '@/shared/progress';
-import type { ModuleDef } from './modules';
+import { tracks, type ModuleDef } from './modules';
 
 export interface TodayItem extends Required<Pick<PlanItem, 'label' | 'path' | 'kind' | 'minutes'>> {
   detail?: string;
@@ -56,11 +56,13 @@ function reviewsFor(m: ModuleDef, s: ProgressSummary | undefined): TodayItem[] {
 /**
  * Build today's session from what modules report via `useReportProgress`:
  * due reviews first (interleaved across modules, so you practise *choosing* the right
- * tool), then a few next steps, then one suggestion to start an untouched module.
+ * tool), then one next step per track (least-progressed module first, ties rotating
+ * daily so every module gets turns), then one suggestion to start an untouched module.
  */
 export function buildTodayPlan(
   modules: ModuleDef[],
   summaries: Partial<Record<ModuleId, ProgressSummary>>,
+  now = new Date(),
 ): TodayItem[] {
   const perModule = modules.map((m) => reviewsFor(m, summaries[m.id]));
   const reviews: TodayItem[] = [];
@@ -68,18 +70,32 @@ export function buildTodayPlan(
     for (const list of perModule) if (list[round] && reviews.length < MAX_REVIEWS) reviews.push(list[round]);
   }
 
-  const next: TodayItem[] = [];
+  const candidates: TodayItem[] = [];
   for (const m of modules) {
     const s = summaries[m.id];
     if (!s) continue;
     const step = s.nextSteps?.[0];
-    if (step) next.push(toItem(m, step, 'learn'));
-    else if (s.resume) next.push(toItem(m, { label: `Continue · ${s.resume.label}`, path: s.resume.path }, 'learn'));
+    if (step) candidates.push(toItem(m, step, 'learn'));
+    else if (s.resume) candidates.push(toItem(m, { label: `Continue · ${s.resume.label}`, path: s.resume.path }, 'learn'));
   }
-  // Prefer modules with the least progress so the plan stays balanced.
-  next.sort((a, b) => ratio(summaries[a.module.id]) - ratio(summaries[b.module.id]));
+  // Least progress first; equal progress rotates by day so no module is starved.
+  const day = Math.floor(now.getTime() / 86_400_000);
+  candidates.sort((a, b) => ratio(summaries[a.module.id]) - ratio(summaries[b.module.id]));
 
-  const untouched = modules.find((m) => !summaries[m.id]?.completed && !next.some((n) => n.module.id === m.id));
+  // One per track first (cross-track interleaving): the least-progressed module of the
+  // track, ties rotating daily so every module gets turns. Then fill with the rest.
+  const ordered: TodayItem[] = [];
+  for (const t of tracks) {
+    const inTrack = candidates.filter((c) => t.modules.some((m) => m.id === c.module.id));
+    if (!inTrack.length) continue;
+    const low = ratio(summaries[inTrack[0].module.id]);
+    const tied = inTrack.filter((c) => ratio(summaries[c.module.id]) === low);
+    ordered.push(tied[day % tied.length]);
+  }
+  for (const c of candidates) if (!ordered.includes(c)) ordered.push(c);
+  const next = ordered.slice(0, MAX_NEXT);
+
+  const untouched = modules.find((m) => !summaries[m.id]?.completed && !next.some((x) => x.module.id === m.id));
   if (untouched && next.length < MAX_NEXT) {
     next.push(toItem(untouched, { label: `Start ${untouched.title}`, path: untouched.path, detail: 'new track — first look' }, 'learn'));
   }

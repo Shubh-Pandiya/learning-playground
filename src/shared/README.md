@@ -112,9 +112,10 @@ useReportProgress('sql', {
 
 How Today is built (`src/app/today.ts`): due reviews first, round-robin across
 modules (interleaving, max 6). If `dueForReview` exceeds the listed `reviews`, a
-"N more reviews due" item links to `resume`. Then the first `nextSteps` item of each
-module (falling back to `resume`), least-progressed module first, plus a suggestion to
-start an untouched module (max 3). Keep the list short and send only the most useful
+"N more reviews due" item links to `resume`. Then next steps (max 3): one per track
+(Algorithms → Systems → Data), using the least-progressed module's first `nextSteps`
+item (falling back to `resume`). Ties rotate daily, so every module gets turns. Leftover
+slots go to other modules, then to a suggestion to start an untouched one. Keep the list short and send only the most useful
 items. Users can tick items off for the day (`lp:app:activity`, which also tracks the
 day streak).
 
