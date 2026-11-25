@@ -1,0 +1,87 @@
+@import '@fontsource-variable/jetbrains-mono';
+@import '@fontsource-variable/inter';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Theme tokens as space-separated RGB so Tailwind alpha modifiers work (bg-ink/10). */
+:root {
+  --c-paper: 244 235 224; /* #f4ebe0 */
+  --c-surface: 250 245 238;
+  --c-sunken: 236 225 211;
+  --c-ink: 31 27 22; /* #1f1b16 */
+  --c-muted: 98 88 76;
+  --c-faint: 150 138 122;
+  --c-line: 214 200 182;
+  --c-accent: 194 84 45; /* terracotta */
+  --c-accent-ink: 255 248 240;
+  --c-ok: 47 125 79;
+  --c-warn: 180 120 20;
+  --c-bad: 186 48 48;
+  --c-info: 44 98 160;
+  --c-violet: 118 78 168;
+  color-scheme: light;
+}
+
+.dark {
+  --c-paper: 22 20 17;
+  --c-surface: 31 28 24;
+  --c-sunken: 16 14 12;
+  --c-ink: 236 226 212;
+  --c-muted: 176 164 148;
+  --c-faint: 120 110 98;
+  --c-line: 60 54 46;
+  --c-accent: 230 120 80;
+  --c-accent-ink: 24 18 12;
+  --c-ok: 98 190 130;
+  --c-warn: 226 172 72;
+  --c-bad: 236 106 106;
+  --c-info: 110 160 220;
+  --c-violet: 172 140 226;
+  color-scheme: dark;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    @apply min-h-full;
+  }
+  body {
+    @apply bg-paper font-sans text-ink antialiased;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-mono tracking-tight;
+  }
+  ::selection {
+    @apply bg-accent/25;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent/60 ring-offset-2 ring-offset-paper;
+  }
+}
+
+@layer components {
+  /* Faint dotted-grid backdrop for canvases / diagrams. */
+  .bg-grid {
+    background-image: radial-gradient(rgb(var(--c-line)) 1px, transparent 1px);
+    background-size: 20px 20px;
+  }
+  /* Small uppercase mono label, e.g. section eyebrows. */
+  .eyebrow {
+    @apply font-mono text-[11px] uppercase tracking-[0.14em] text-muted;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
