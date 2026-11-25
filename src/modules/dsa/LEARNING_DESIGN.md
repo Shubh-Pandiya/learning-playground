@@ -28,6 +28,7 @@ The goal is not to memorise 150 solutions. It is to recognise and adapt about 27
 | Elaboration via real-world anchors | Elaborative encoding | Every problem has a `backend` use case (e.g. Top K Frequent → hottest client IPs for rate limiting), every pattern lists backend uses, and you add your own in "connect it to your work" |
 | Far transfer via varied practice | Gick & Holyoak 1983 | Over 40 unseen `variants` re-dress patterns in new (mostly backend) stories. `pages/Transfer.tsx` asks you to name the pattern, write a plan, then compare with the reference and the nearest NeetCode problem |
 | Desirable difficulty & minimal hints | Bjork 1994 | Hints are progressive and their use is tracked. Pattern labels can be hidden in the problem list so they don't give the answer away |
+| Transfer-appropriate processing / reduced extraneous load | Morris, Bransford & Franks 1977; Sweller | Language choice (Python / Java / C++, `lang/store.ts` → `lp:dsa:lang`, first-visit picker in `components/LangSwitch.tsx`). All code surfaces render in that language: `lang/code.ts` with translations in `problems/lang/*.ts` and `data/pattern-langs.ts`, which share `@key` line markers so traces, explanations and builder checks stay aligned. Language gotchas sit next to each pattern and problem |
 | Motivation: visible progress & small wins | Progress principle; goal-gradient effect | Dashboard mastery levels, per-category progress, streak, a ~30-minute "today's session" plan, and the home-page card via `useReportProgress` |
 
 ## Mastery levels (`store.ts → mastery`)
@@ -36,4 +37,4 @@ The goal is not to memorise 150 solutions. It is to recognise and adapt about 27
 
 ## Persistence
 
-All progress lives in `localStorage` at `lp:dsa:progress` (zustand persist via `createPersistedStore('dsa', 'progress', …)`). It can be exported or reset from the app's Settings page.
+All progress lives in `localStorage` at `lp:dsa:progress` (the chosen code language is stored at `lp:dsa:lang`) (zustand persist via `createPersistedStore('dsa', 'progress', …)`). It can be exported or reset from the app's Settings page.

@@ -6,6 +6,7 @@ import type {
   CodeLine,
   DecisionViz,
   Frame,
+  Lang,
   Prediction,
   Problem,
   Tone,
@@ -26,10 +27,14 @@ export class TraceLimitError extends Error {
 // Formatting
 // ---------------------------------------------------------------------------
 
-/** Format any value Python-style for display. Strings are NOT quoted (use `fmtq` for that). */
+// Literal spelling for the learner's chosen language (set by runTrace for the duration of a trace).
+let display: Lang = 'python';
+const NULL_WORD: Record<Lang, string> = { python: 'None', java: 'null', cpp: 'nullptr' };
+
+/** Format any value for display (Python-style by default). Strings are NOT quoted (use `fmtq` for that). */
 export function fmt(v: unknown, depth = 0): string {
-  if (v === null || v === undefined) return 'None';
-  if (typeof v === 'boolean') return v ? 'True' : 'False';
+  if (v === null || v === undefined) return NULL_WORD[display];
+  if (typeof v === 'boolean') return display === 'python' ? (v ? 'True' : 'False') : v ? 'true' : 'false';
   if (typeof v === 'number') {
     if (v === Infinity) return '∞';
     if (v === -Infinity) return '-∞';
@@ -48,7 +53,7 @@ export function fmt(v: unknown, depth = 0): string {
     return `{${parts.join(', ')}${v.size > 30 ? ', …' : ''}}`;
   }
   if (v instanceof Set) {
-    if (v.size === 0) return 'set()';
+    if (v.size === 0) return display === 'python' ? 'set()' : '{}';
     const parts = [...v].slice(0, 30).map((x) => fmtq(x, depth + 1));
     return `{${parts.join(', ')}${v.size > 30 ? ', …' : ''}}`;
   }
@@ -61,7 +66,7 @@ export function fmt(v: unknown, depth = 0): string {
 
 /** Like fmt, but strings are quoted — used for the variable watch panel and nested values. */
 export function fmtq(v: unknown, depth = 0): string {
-  return typeof v === 'string' ? `'${v}'` : fmt(v, depth);
+  return typeof v === 'string' ? (display === 'python' ? `'${v}'` : `"${v}"`) : fmt(v, depth);
 }
 
 // ---------------------------------------------------------------------------
@@ -607,16 +612,20 @@ export class Tracer {
   }
 }
 
-export function runTrace<I>(problem: Problem<I>, input: I): TraceResult {
+export function runTrace<I>(problem: Problem<I>, input: I, lang: Lang = 'python'): TraceResult {
   const err = problem.validate?.(input) ?? null;
   if (err) return { frames: [], result: null, truncated: false, error: err };
   const t = new Tracer();
+  const prev = display;
+  display = lang;
   try {
     const res = problem.trace(t, JSON.parse(JSON.stringify(input)) as I);
     return { frames: t.frames, result: res === undefined ? null : fmtq(res), truncated: false, error: null };
   } catch (e) {
     if (e instanceof TraceLimitError) return { frames: t.frames, result: null, truncated: true, error: null };
     return { frames: t.frames, result: null, truncated: false, error: e instanceof Error ? e.message : String(e) };
+  } finally {
+    display = prev;
   }
 }
 

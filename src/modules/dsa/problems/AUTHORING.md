@@ -76,3 +76,45 @@ trace(t, { nums }) {
 - Design problems (Min Stack, LRU, Trie, Twitter…) take `{ ops: [["push", 3], ["getMin"]] }` style
   input and step through each operation.
 - Keep it deterministic and terminating; guard recursion depth.
+
+## Languages (Java / C++)
+
+Learners pick Python, Java or C++. `Problem.code` stays the canonical Python. Each category gets
+`problems/lang/<category>.ts` (same file name as the category file) exporting
+`langs: Record<problemId, LangPack>`; see `lang/arrays-hashing.ts` for reference entries.
+
+```ts
+'two-sum': {
+  java: `…`,            // method(s) / class body — NO imports, NO `class Solution` wrapper
+  cpp: `…`,             // same; C++ STL, `using namespace std` is assumed
+  distractors: [{ java, cpp }, …],   // exactly one per Python distractor, same order and meaning
+  gotchas: { python?: [], java?: [], cpp?: [] },  // optional language traps specific to this problem
+}
+```
+
+Rules (enforced by `engine/check.ts` and `engine/compile-check.ts`):
+
+1. **Same `@key` set** as the Python code — every key exactly once in each language, no extra keys.
+   The tracer's frames point at keys, so a key must sit on the line that does the same job. When the
+   Python line does two things, put the key on the statement that best matches the narration. Never put a
+   key on a `}`-only line.
+2. **Same variable names** as the Python code (the watch panel shows the tracer's names). Method name
+   keeps LeetCode's camelCase. If Python uses a tuple (`l, r = 0, n - 1`) declare both on one line.
+3. **Idiomatic code**: Java `HashMap`/`HashSet`/`ArrayDeque` (not `Stack`)/`PriorityQueue`
+   (comparator for max-heap)/`int[]`; C++ `unordered_map`/`unordered_set`/`vector`/`priority_queue`
+   (`greater<>` for min-heap)/`deque`/`pair`, `auto& [a, b]` bindings, `(int)x.size()` in comparisons.
+   Recursion helpers become private methods (Java) or member functions / lambdas via `function<>` (C++).
+   Class-level state (e.g. `res`, `visited`) becomes fields. Design problems are a full class
+   (`class LRUCache { … }` — C++ with `public:`).
+4. **4-space indentation**, braces on the same line, closing `}` on its own line. Avoid `@Override`.
+   Keep it ≤ 48 lines; the builder shows one block per non-`}` line.
+5. Must **compile**: snippets are pasted into `class Solution { … }` with `java.util.*`, `java.util.function.*`,
+   `java.util.stream.*` (Java) / standard headers + `using namespace std;` (C++) and LeetCode's
+   `ListNode`, `TreeNode` and `Node` (val, next, random, left, right, neighbors). Use those types — do
+   not redefine them (a design problem's private inner node class must use another name, e.g. `DNode`).
+6. Distractors mirror the Python trap in the target language (same mistake, same indentation depth).
+
+Run:
+
+    /opt/homebrew/bin/node src/modules/dsa/engine/check.ts <category>          # keys, distractors, shape
+    /opt/homebrew/bin/node src/modules/dsa/engine/compile-check.ts <category>  # javac + clang++

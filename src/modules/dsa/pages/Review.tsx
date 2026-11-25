@@ -10,6 +10,9 @@ import { problemById } from '../problems';
 import { patternById } from '../data/patterns';
 import { isProblemDue, useDsa } from '../store';
 import { DifficultyTag, PageHeader, PatternTag } from '../components/common';
+import { LangSwitch } from '../components/LangSwitch';
+import { LANG_META, problemCode } from '../lang/code';
+import { useLang } from '../lang/store';
 
 export default function Review() {
   const prog = useDsa((s) => s.problems);
@@ -36,7 +39,8 @@ export default function Review() {
 
   const id = queue[i];
   const p = id ? problemById[id] : undefined;
-  const code = useMemo(() => (p ? parseCode(p.code).map((l) => l.text).join('\n') : ''), [p]);
+  const lang = useLang();
+  const code = useMemo(() => (p ? parseCode(problemCode(p, lang)).map((l) => l.text).join('\n') : ''), [p, lang]);
 
   const rate = (g: RecallGrade) => {
     grade(id, g);
@@ -119,7 +123,10 @@ export default function Review() {
                   )}
                 </div>
                 <div className="overflow-hidden rounded-xl border border-line bg-surface">
-                  <CodeBlock code={code} className="max-h-80 overflow-auto text-[12px]" />
+                  <div className="flex justify-end border-b border-line px-2 py-1">
+                    <LangSwitch size="xs" />
+                  </div>
+                  <CodeBlock code={code} language={LANG_META[lang].prism} className="max-h-80 overflow-auto text-[12px]" />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">

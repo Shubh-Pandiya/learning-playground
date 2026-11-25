@@ -7,7 +7,7 @@
 import { readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import type { Problem, Variant } from './types.ts';
+import type { LangPack, Pattern, Problem, Variant } from './types.ts';
 import { parseCode, runTrace } from './tracer.ts';
 
 const PATTERNS = new Set([
@@ -33,6 +33,57 @@ const warn = (p: string, m: string) => {
   warnings++;
   console.log(`  ! ${p}: ${m}`);
 };
+
+// Java / C++ translations: problems/lang/<category>.ts → `langs: Record<problemId, LangPack>`
+const langDir = join(dir, 'lang');
+const langPacks: Record<string, LangPack> = {};
+for (const f of readdirSync(langDir).filter((f) => f.endsWith('.ts'))) {
+  const mod = (await import(pathToFileURL(join(langDir, f)).href)) as { langs?: Record<string, LangPack> };
+  for (const [k, v] of Object.entries(mod.langs ?? {})) {
+    if (langPacks[k]) err(k, `lang pack defined twice (lang/${f})`);
+    langPacks[k] = v;
+  }
+}
+
+/** Shared checks for a Java/C++ pack. `keys` = Python's @key set (problems) or null (pattern templates). */
+function checkPack(id: string, pack: LangPack | undefined, keys: string[] | null, distractors: number) {
+  if (!pack) return err(id, 'missing Java/C++ lang pack');
+  for (const lang of ['java', 'cpp'] as const) {
+    const code = pack[lang];
+    if (!code || typeof code !== 'string' || !code.trim()) {
+      err(id, `${lang}: missing code`);
+      continue;
+    }
+    if (/\t/.test(code)) err(id, `${lang}: use 4 spaces, not tabs`);
+    const lines = parseCode(code);
+    const bad = lines.find((l) => l.text.trim() && (l.text.length - l.text.trimStart().length) % 4);
+    if (bad) err(id, `${lang}: indentation not a multiple of 4 spaces: "${bad.text.trim()}"`);
+    const open = (code.match(/{/g) ?? []).length;
+    const close = (code.match(/}/g) ?? []).length;
+    if (open !== close) err(id, `${lang}: unbalanced braces (${open} { vs ${close} })`);
+    if (/@Override/.test(code)) err(id, `${lang}: do not use @Override (clashes with @key markers)`);
+    if (/^\s*(import |#include|using namespace|package )/m.test(code)) err(id, `${lang}: no imports/includes — the snippet is a class body`);
+    if (lines.length > 48) warn(id, `${lang}: ${lines.length} lines (keep ≤ 48 for the builder)`);
+    const k = lines.map((l) => l.key).filter(Boolean) as string[];
+    const dupe = k.find((x, i) => k.indexOf(x) !== i);
+    if (dupe) err(id, `${lang}: duplicate line key @${dupe}`);
+    if (keys) {
+      const missing = keys.filter((x) => !k.includes(x));
+      const extra = k.filter((x) => !keys.includes(x));
+      if (missing.length) err(id, `${lang}: missing line keys ${missing.map((x) => '@' + x).join(' ')}`);
+      if (extra.length) err(id, `${lang}: line keys not in the Python code ${extra.map((x) => '@' + x).join(' ')}`);
+      const closing = lines.find((l) => l.key && /^\s*[})\];]+\s*$/.test(l.text));
+      if (closing) err(id, `${lang}: @${closing.key} is on a closing-brace-only line — put it on a statement`);
+    } else if (lines.some((l) => l.key)) err(id, `${lang}: templates must not use @key markers`);
+  }
+  if (!Array.isArray(pack.distractors) || pack.distractors.length !== distractors)
+    err(id, `lang distractors: need exactly ${distractors} (one per Python distractor, same order), got ${pack.distractors?.length ?? 0}`);
+  else pack.distractors.forEach((d, i) => (['java', 'cpp'] as const).forEach((l) => (!d?.[l]?.trim() ? err(id, `distractor ${i}: missing ${l}`) : 0)));
+  for (const [l, g] of Object.entries(pack.gotchas ?? {})) {
+    if (!['python', 'java', 'cpp'].includes(l)) err(id, `gotchas: unknown language ${l}`);
+    if (!Array.isArray(g) || g.some((x) => typeof x !== 'string' || !x.trim())) err(id, `gotchas.${l}: must be non-empty strings`);
+  }
+}
 
 const ids = new Set<string>();
 const nums = new Set<number>();
@@ -96,6 +147,7 @@ for (const f of files) {
       }
     }
     if (!predictions) err(id, 'no t.predict(...) questions in any trace');
+    checkPack(id, langPacks[id], keys, p.distractors?.length ?? 0);
   }
 }
 
@@ -103,6 +155,21 @@ for (const v of allVariants) {
   if (!v.id || !v.title || !v.statement || !v.approach || !v.backend) err(v.id ?? '(variant)', 'variant missing fields');
   if (!PATTERNS.has(v.pattern)) err(v.id, `variant has unknown pattern ${v.pattern}`);
   if (!wanted.length && !ids.has(v.nearest)) err(v.id, `variant.nearest ${v.nearest} is not a problem id`);
+}
+
+for (const k of Object.keys(langPacks)) if (!wanted.length && !ids.has(k)) err(k, 'lang pack for an unknown problem id');
+
+// Pattern templates (only when checking everything, or when asked for with "patterns")
+if (!wanted.length || wanted.includes('patterns')) {
+  const { patterns } = (await import(pathToFileURL(join(here, '..', 'data', 'patterns.ts')).href)) as { patterns: Pattern[] };
+  let packs = 0;
+  for (const pt of patterns) {
+    if (pt.langs) packs++;
+    checkPack(`pattern:${pt.id}`, pt.langs, null, pt.distractors.length);
+    for (const l of ['python', 'java', 'cpp'] as const)
+      if (!pt.langs?.gotchas?.[l]?.length) err(`pattern:${pt.id}`, `gotchas.${l}: need ≥1 language-specific gotcha`);
+  }
+  console.log(`patterns: ${patterns.length} (${packs} with Java/C++)`);
 }
 
 console.log(`\n${total} problems, ${allVariants.length} variants — ${errors} errors, ${warnings} warnings`);

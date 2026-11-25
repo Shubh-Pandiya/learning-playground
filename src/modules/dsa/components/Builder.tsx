@@ -16,11 +16,12 @@ import { motion } from 'framer-motion';
 import { BookOpen, CheckCircle2, GripVertical, Lightbulb, Lock, Play, RotateCcw, Wand2, XCircle } from 'lucide-react';
 import { Button, Callout, Tag } from '@/shared/ui';
 import { cn } from '@/shared/cn';
-import type { Problem } from '../engine/types';
+import type { Lang, Problem } from '../engine/types';
 import { parseCode } from '../engine/tracer';
 import { patternById } from '../data/patterns';
 import { useDsa, type BuildMode } from '../store';
 import { shuffle } from './common';
+import { isClosingLine, patternDistractors, problemCode, problemDistractors } from '../lang/code';
 
 interface Block {
   id: string;
@@ -46,8 +47,9 @@ const MODES: { id: BuildMode; label: string; blurb: string }[] = [
   { id: 'scratch', label: '3 · Build from scratch', blurb: 'Assemble the whole algorithm. Some blocks are traps.' },
 ];
 
-function setup(problem: Problem, mode: BuildMode, seed: number) {
-  const lines = parseCode(problem.code).filter((l) => l.text.trim());
+function setup(problem: Problem, mode: BuildMode, seed: number, lang: Lang) {
+  // closing braces carry no decision — indentation already shows where a block ends
+  const lines = parseCode(problemCode(problem, lang)).filter((l) => l.text.trim() && !isClosingLine(l.text));
   const blocks: Record<string, Block> = {};
   const correct: string[] = [];
   lines.forEach((l, i) => {
@@ -57,8 +59,8 @@ function setup(problem: Problem, mode: BuildMode, seed: number) {
   });
   const pattern = patternById[problem.pattern];
   const distractors = [
-    ...problem.distractors,
-    ...shuffle(pattern?.distractors ?? [], seed).slice(0, mode === 'scratch' ? 2 : 1),
+    ...problemDistractors(problem, lang),
+    ...shuffle(pattern ? patternDistractors(pattern, lang) : [], seed).slice(0, mode === 'scratch' ? 2 : 1),
   ];
   distractors.forEach((d, i) => {
     blocks[`d${i}`] = { id: `d${i}`, text: d.text, distractor: true, why: d.why };
@@ -71,7 +73,7 @@ function setup(problem: Problem, mode: BuildMode, seed: number) {
   else {
     // fade roughly half of the body (never the signature line) — prefer loop/branch/return lines
     const body = correct.slice(1);
-    const score = (id: string) => (/^\s*(for|while|if|elif|else|return)\b/.test(blocks[id].text) ? 2 : 0) + ((seed + id.length + +id.slice(1)) % 3);
+    const score = (id: string) => (/^\s*(?:}\s*)?(for|while|if|elif|else|return)\b/.test(blocks[id].text) ? 2 : 0) + ((seed + id.length + +id.slice(1)) % 3);
     const fadeN = Math.max(2, Math.ceil(body.length * 0.45));
     const faded = new Set([...body].sort((a, b) => score(b) - score(a)).slice(0, fadeN));
     const solution = correct.filter((id) => !faded.has(id));
@@ -81,15 +83,16 @@ function setup(problem: Problem, mode: BuildMode, seed: number) {
   return { blocks, correct, containers: c };
 }
 
-export function Builder({ problem, onRun }: { problem: Problem; onRun: () => void }) {
+/** Remount (key) on language change — the blocks are language-specific. */
+export function Builder({ problem, onRun, lang = 'python' }: { problem: Problem; onRun: () => void; lang?: Lang }) {
   const progress = useDsa((s) => s.problems[problem.id]);
   const recordBuild = useDsa((s) => s.recordBuild);
   const recordHint = useDsa((s) => s.recordHint);
   const suggested: BuildMode = progress?.built?.faded ? 'scratch' : progress?.built?.worked ? 'faded' : 'worked';
   const [mode, setMode] = useState<BuildMode>(suggested);
   const [seed, setSeed] = useState(() => Math.floor(Math.random() * 1e6));
-  const { blocks, correct } = useMemo(() => setup(problem, mode, seed), [problem, mode, seed]);
-  const [c, setC] = useState<Containers>(() => setup(problem, mode, seed).containers);
+  const { blocks, correct } = useMemo(() => setup(problem, mode, seed, lang), [problem, mode, seed, lang]);
+  const [c, setC] = useState<Containers>(() => setup(problem, mode, seed, lang).containers);
   const [marks, setMarks] = useState<Record<string, Mark>>({});
   const [fb, setFb] = useState<Feedback | null>(null);
   const [hints, setHints] = useState(0);
@@ -98,7 +101,7 @@ export function Builder({ problem, onRun }: { problem: Problem; onRun: () => voi
     const s = Math.floor(Math.random() * 1e6);
     setMode(m);
     setSeed(s);
-    setC(setup(problem, m, s).containers);
+    setC(setup(problem, m, s, lang).containers);
     setMarks({});
     setFb(null);
   };
@@ -159,7 +162,21 @@ export function Builder({ problem, onRun }: { problem: Problem; onRun: () => voi
   };
 
   const check = () => {
-    const sol = c.solution;
+    // A trap may repeat a correct line (the mistake is doing it twice). Identical blocks are
+    // interchangeable: the earliest placed copies count as the real lines, any extra copy is the trap.
+    const same = (id: string) => blocks[id].text.trimEnd();
+    const pool = new Map<string, { real: string[]; trap: string[] }>();
+    for (const id of Object.keys(blocks)) {
+      const g = pool.get(same(id)) ?? { real: [], trap: [] };
+      (blocks[id].distractor ? g.trap : g.real).push(id);
+      pool.set(same(id), g);
+    }
+    const sol = c.solution.map((id) => {
+      const g = pool.get(same(id))!;
+      if (!blocks[id].distractor && !g.trap.length) return id;
+      if (blocks[id].distractor && !g.real.length) return id;
+      return g.real.shift() ?? g.trap.shift() ?? id;
+    });
     const items: Feedback['items'] = [];
     const m: Record<string, Mark> = {};
     const traps = sol.filter((id) => blocks[id].distractor);
@@ -203,7 +220,7 @@ export function Builder({ problem, onRun }: { problem: Problem; onRun: () => voi
       items.push({ tone: 'info', text: `${missing} line${missing > 1 ? 's are' : ' is'} still missing from your solution.` });
     }
     const ok = !items.length;
-    setMarks(m);
+    setMarks(Object.fromEntries(c.solution.map((shown, i) => [shown, m[sol[i]]])));
     setFb({
       ok,
       title: ok ? 'Correct — every line is in the right place.' : 'Not yet. Here is what to fix:',

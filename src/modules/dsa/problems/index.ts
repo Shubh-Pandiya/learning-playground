@@ -1,10 +1,14 @@
-import type { CategoryId, PatternId, Problem, Variant } from '../engine/types';
+import type { CategoryId, LangPack, PatternId, Problem, Variant } from '../engine/types';
 import { categories } from '../data/categories';
 
 // Every category file in this folder exports `problems` and `variants`.
 const modules = import.meta.glob<{ problems?: Problem[]; variants?: Variant[] }>(['./*.ts', '!./index.ts'], {
   eager: true,
 });
+
+// Java / C++ translations live in ./lang/<category>.ts as `langs: Record<problemId, LangPack>`.
+const langModules = import.meta.glob<{ langs?: Record<string, LangPack> }>('./lang/*.ts', { eager: true });
+const langPacks: Record<string, LangPack> = Object.assign({}, ...Object.values(langModules).map((m) => m.langs ?? {}));
 
 const order = Object.fromEntries(categories.map((c) => [c.id, c.order])) as Record<CategoryId, number>;
 
@@ -19,7 +23,7 @@ for (const mod of Object.values(modules)) {
 export const problems: Problem[] = collected
   .map((p, i) => ({ p, i }))
   .sort((a, b) => order[a.p.category] - order[b.p.category] || a.i - b.i)
-  .map(({ p }) => p);
+  .map(({ p }) => (langPacks[p.id] ? { ...p, langs: langPacks[p.id] } : p));
 
 export const variants: Variant[] = collectedVariants;
 

@@ -89,4 +89,12 @@ export const principles: Principle[] = [
     where: 'The dashboard has mastery levels per problem, progress per category and pattern, a daily streak and a ~30-minute session plan. Progress is saved locally.',
     tip: 'Aim for a daily 30-minute session over occasional long ones.',
   },
+  {
+    name: 'Practise in your interview language (transfer-appropriate processing)',
+    finding:
+      'Memory works best when the conditions at practice match the conditions at test (Morris, Bransford & Franks 1977). Translating from an unfamiliar language while also learning a pattern adds extraneous cognitive load (Sweller).',
+    where:
+      'Pick Python, Java or C++ once. Templates, solutions, the step-through code panel and every drag-and-drop block then use that language, and the watch panel prints null/None and true/True the way your language does. Language-specific gotchas are shown next to each pattern and problem.',
+    tip: 'Use the language you will write in the interview, and read the gotchas. Those are exactly the bugs that cost time on a whiteboard.',
+  },
 ];

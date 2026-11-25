@@ -1,6 +1,7 @@
 import type { Pattern, PatternId } from '../engine/types.ts';
+import { patternLangs } from './pattern-langs.ts';
 
-export const patterns: Pattern[] = [
+const basePatterns: Pattern[] = [
   {
     id: 'hashing',
     name: 'Hash Map / Set',
@@ -780,5 +781,8 @@ class Design:
     distractors: [{ text: '        self.items.remove(key)', why: 'list.remove is O(n) — design problems usually need O(1).' }],
   },
 ];
+
+/** Patterns with their Java / C++ templates attached. */
+export const patterns: Pattern[] = basePatterns.map((p) => ({ ...p, langs: patternLangs[p.id] }));
 
 export const patternById = Object.fromEntries(patterns.map((p) => [p.id, p])) as Record<PatternId, Pattern>;

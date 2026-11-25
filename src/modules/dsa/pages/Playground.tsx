@@ -26,6 +26,9 @@ import { categoryById } from '../data/categories';
 import { useDsa, MASTERY_LABELS, mastery } from '../store';
 import { Visualizer } from '../components/Visualizer';
 import { Builder } from '../components/Builder';
+import { GotchaList, LangSwitch } from '../components/LangSwitch';
+import { LANG_META, gotchas, problemCode } from '../lang/code';
+import { useLang } from '../lang/store';
 import { DifficultyTag, MasteryDots, PatternTag, shuffle } from '../components/common';
 import type { RecallGrade } from '@/shared/progress';
 
@@ -145,7 +148,7 @@ function ProblemPage({ problem }: { problem: Problem }) {
           </nav>
           {tab === 'understand' && <Understand problem={problem} onGo={setTab} />}
           {tab === 'visualize' && <VisualizeTab problem={problem} />}
-          {tab === 'build' && <Builder key={problem.id} problem={problem} onRun={() => setTab('visualize')} />}
+          {tab === 'build' && <BuildTab problem={problem} onRun={() => setTab('visualize')} />}
           {tab === 'reflect' && <Reflect problem={problem} />}
         </>
       )}
@@ -271,6 +274,7 @@ function Understand({ problem, onGo }: { problem: Problem; onGo: (t: TabId) => v
         <Callout tone="warn" title="Common pitfall">
           {problem.pitfall}
         </Callout>
+        <LangGotchas problem={problem} />
       </div>
       <div className="space-y-4">
         <section className="rounded-xl border-2 border-info/30 bg-info/5 p-4">
@@ -311,8 +315,38 @@ function Understand({ problem, onGo }: { problem: Problem; onGo: (t: TabId) => v
 
 // ---------------------------------------------------------------------------
 
+function BuildTab({ problem, onRun }: { problem: Problem; onRun: () => void }) {
+  const lang = useLang();
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-3 text-xs text-muted">
+        <span className="eyebrow">blocks in</span>
+        <LangSwitch size="xs" />
+        {lang !== 'python' && <span className="text-faint">Closing braces are left out — a block ends where the indentation does.</span>}
+      </div>
+      <Builder key={`${problem.id}:${lang}`} problem={problem} lang={lang} onRun={onRun} />
+      <LangGotchas problem={problem} />
+    </div>
+  );
+}
+
+/** Language-specific traps for this problem and its pattern. */
+function LangGotchas({ problem }: { problem: Problem }) {
+  const lang = useLang();
+  const list = [...gotchas(problem, lang), ...gotchas(patternById[problem.pattern], lang)];
+  if (!list.length) return null;
+  return (
+    <Callout tone="info" title={`${LANG_META[lang].label} gotchas`}>
+      <GotchaList items={list} />
+    </Callout>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
 function VisualizeTab({ problem }: { problem: Problem }) {
-  const lines = useMemo(() => parseCode(problem.code), [problem.code]);
+  const lang = useLang();
+  const lines = useMemo(() => parseCode(problemCode(problem, lang)), [problem, lang]);
   const presets = useMemo(() => [{ label: 'default', input: problem.input }, ...(problem.presets ?? [])], [problem]);
   const [preset, setPreset] = useState(0);
   const [text, setText] = useState(() => JSON.stringify(problem.input));
@@ -325,7 +359,7 @@ function VisualizeTab({ problem }: { problem: Problem }) {
   const patch = useDsa((s) => s.patch);
   const recordPrediction = useDsa((s) => s.recordPrediction);
 
-  const trace = useMemo(() => runTrace(problem, input), [problem, input]);
+  const trace = useMemo(() => runTrace(problem, input, lang), [problem, input, lang]);
 
   const choose = (i: number) => {
     setPreset(i);
@@ -408,6 +442,8 @@ function VisualizeTab({ problem }: { problem: Problem }) {
         onPrediction={(ok) => recordPrediction(problem.id, ok)}
         onFinish={() => patch(problem.id, { visualized: true })}
         codeFooter={editor}
+        language={LANG_META[lang].prism}
+        codeActions={<LangSwitch size="xs" />}
       />
     </div>
   );

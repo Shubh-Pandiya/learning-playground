@@ -15,6 +15,8 @@ import Review from './pages/Review';
 import Transfer from './pages/Transfer';
 import Method from './pages/Method';
 import { ErrorBoundary } from './components/common';
+import { LangPicker, LangSwitch } from './components/LangSwitch';
+import './lang/prism-java';
 
 const NAV = [
   { to: '/dsa', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -113,7 +115,8 @@ export default function DsaModule() {
   return (
     <div>
       <nav className="sticky top-[var(--header-h)] z-20 border-b border-line bg-paper">
-        <div className="mx-auto flex max-w-[1600px] gap-1 overflow-x-auto px-5 py-1.5">
+        <div className="mx-auto flex max-w-[1600px] items-center gap-1 px-5 py-1.5">
+          <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
           {NAV.map(({ to, label, icon: Icon, end, badge }) => (
             <NavLink
               key={to}
@@ -131,8 +134,11 @@ export default function DsaModule() {
               {badge && due > 0 && <span className="rounded-full bg-warn px-1.5 font-mono text-[10px] leading-4 text-paper">{due}</span>}
             </NavLink>
           ))}
+          </div>
+          <LangSwitch className="ml-2 shrink-0" />
         </div>
       </nav>
+      <LangPicker />
       <div className="mx-auto max-w-[1600px] px-5 py-6">
         <ErrorBoundary resetKey={location.pathname}>
         <Routes>

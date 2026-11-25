@@ -290,6 +290,29 @@ export interface Problem<I = any> {
   validate?: (input: I) => string | null;
   /** Runs the real algorithm on `input`, emitting frames through the tracer; returns the answer. */
   trace: (t: import('./tracer.ts').Tracer, input: I) => unknown;
+  /** Java / C++ versions (from `problems/lang/<category>.ts`, attached by problems/index.ts). */
+  langs?: LangPack;
+}
+
+// ---------------------------------------------------------------------------
+// Languages
+// ---------------------------------------------------------------------------
+
+export type Lang = 'python' | 'java' | 'cpp';
+export const LANGS: readonly Lang[] = ['python', 'java', 'cpp'];
+
+/**
+ * Java and C++ versions of a solution or template. `java` / `cpp` use the SAME `@key` line markers
+ * as the Python code (same set, each exactly once) so trace frames, explanations and builder block
+ * ids line up in every language. Lines without a key (closing braces, extra declarations) are fine.
+ */
+export interface LangPack {
+  java: string;
+  cpp: string;
+  /** One entry per Python distractor, same order: the equivalent wrong line in Java / C++ (with indentation). */
+  distractors: { java: string; cpp: string }[];
+  /** Language-specific traps for this problem / pattern (e.g. "heapq is a min-heap — push -x"). */
+  gotchas?: Partial<Record<Lang, string[]>>;
 }
 
 export interface Variant {
@@ -329,6 +352,8 @@ export interface Pattern {
   selfExplain: string[];
   /** Generic wrong blocks for this pattern, mixed into the builder. */
   distractors: Distractor[];
+  /** Java / C++ template + distractors + per-language gotchas (from data/pattern-langs.ts). */
+  langs?: LangPack;
 }
 
 export interface Category {

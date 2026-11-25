@@ -8,7 +8,7 @@ import { VizView } from '../viz/VizView';
 import { shuffle } from './common';
 
 const isLoop = (l: CodeLine) => /^\s*(for|while)\b/.test(l.text);
-const isBranch = (l: CodeLine) => /^\s*(if|elif|else|while|for)\b/.test(l.text);
+const isBranch = (l: CodeLine) => /^\s*(?:}\s*)?(if|elif|else|while|for)\b/.test(l.text);
 
 /** loop key → iteration count at step, resetting inner loops each time the enclosing loop advances. */
 function loopCounts(frames: Frame[], step: number, lines: CodeLine[]) {
@@ -49,9 +49,13 @@ export interface VisualizerProps {
   onFinish?: () => void;
   /** Extra content under the code column (e.g. input editor). */
   codeFooter?: React.ReactNode;
+  /** Prism language of `lines` (default python). */
+  language?: string;
+  /** Extra controls in the code panel's title bar (e.g. language switch). */
+  codeActions?: React.ReactNode;
 }
 
-export function Visualizer({ lines, trace, explain, predictMode, lineQuiz, onPrediction, onFinish, codeFooter }: VisualizerProps) {
+export function Visualizer({ lines, trace, explain, predictMode, lineQuiz, onPrediction, onFinish, codeFooter, language, codeActions }: VisualizerProps) {
   const { frames } = trace;
   const s = useStepper(frames.length, { intervalMs: 1100 });
   const frame = frames[Math.min(s.step, frames.length - 1)];
@@ -164,12 +168,16 @@ export function Visualizer({ lines, trace, explain, predictMode, lineQuiz, onPre
         <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-paper">
           <div className="flex items-center justify-between border-b border-line px-3 py-1.5">
             <span className="eyebrow">solution</span>
-            <span className="font-mono text-[11px] text-faint">
-              step {s.step + 1}/{frames.length}
-            </span>
+            <div className="flex items-center gap-2">
+              {codeActions}
+              <span className="font-mono text-[11px] text-faint">
+                step {s.step + 1}/{frames.length}
+              </span>
+            </div>
           </div>
           <CodeBlock
             code={lines.map((l) => l.text).join('\n')}
+            language={language}
             highlightLines={curLine !== undefined ? [curLine + 1] : []}
             annotations={annotations}
             className="max-h-[28rem] overflow-auto text-[12.5px]"

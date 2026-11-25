@@ -8,6 +8,9 @@ import { problemsByPattern, variants } from '../problems';
 import { isSolved, useDsa } from '../store';
 import { DifficultyTag, PageHeader, PatternTag, StatusIcon, patternTone } from '../components/common';
 import { toneClasses } from '@/shared/ui';
+import { GotchaList, LangSwitch } from '../components/LangSwitch';
+import { LANG_META, gotchas, patternTemplate } from '../lang/code';
+import { useLang } from '../lang/store';
 
 export function PatternList() {
   const prog = useDsa((s) => s.problems);
@@ -80,6 +83,7 @@ export function PatternDetail() {
   const prog = useDsa((s) => s.problems);
   const note = useDsa((s) => s.patterns[id as PatternId]?.note ?? '');
   const setNote = useDsa((s) => s.setPatternNote);
+  const lang = useLang();
   if (!p) {
     return (
       <Callout tone="warn" title="Unknown pattern">
@@ -127,10 +131,18 @@ export function PatternDetail() {
           <section className="overflow-hidden rounded-xl border border-line bg-surface shadow-paper">
             <div className="flex items-center justify-between border-b border-line px-4 py-2">
               <span className="eyebrow">template</span>
-              <span className="font-mono text-[11px] text-faint">{p.complexity}</span>
+              <div className="flex items-center gap-3">
+                <span className="font-mono text-[11px] text-faint">{p.complexity}</span>
+                <LangSwitch size="xs" />
+              </div>
             </div>
-            <CodeBlock code={p.template.replace(/^\s*\n/, '').trimEnd()} className="text-[12.5px]" />
+            <CodeBlock code={patternTemplate(p, lang).replace(/^\s*\n/, '').trimEnd()} language={LANG_META[lang].prism} className="text-[12.5px]" />
           </section>
+          {gotchas(p, lang).length > 0 && (
+            <Callout tone="info" title={`${LANG_META[lang].label} gotchas`}>
+              <GotchaList items={gotchas(p, lang)} />
+            </Callout>
+          )}
           <div className="grid gap-4 md:grid-cols-2">
             <ListCard icon={<ShieldCheck className="h-4 w-4 text-ok" />} title="invariants — what stays true every iteration" items={p.invariants} />
             <ListCard icon={<AlertTriangle className="h-4 w-4 text-warn" />} title="common mistakes" items={p.mistakes} />
