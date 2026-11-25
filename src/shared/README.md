@@ -1,6 +1,6 @@
 # `src/shared` — design system & app services
 
-Everything here is shared by `src/modules/dsa` and `src/modules/system-design`.
+Everything here is shared by all modules: `dsa`, `system-design`, `kafka`, `sql`, `data-modeling`.
 Import via the `@/` alias (→ `src/`). Don't fork these — extend them.
 
 ## Look & feel
@@ -65,7 +65,7 @@ const f = frames[s.step];
 ## Progress persistence — `import { … } from '@/shared/progress'`
 
 All progress lives in `localStorage` under `lp:<namespace>:<name>`
-(`dsa` → `lp:dsa:*`, `sd` → `lp:sd:*`, `app` → `lp:app:*`). The dev server is pinned
+(namespaces: `dsa`, `sd` (system design), `kafka`, `sql`, `dm` (data modelling), `app`). The dev server is pinned
 to `http://localhost:5199` because localStorage is per-origin.
 
 ```ts
@@ -88,9 +88,56 @@ useReportProgress('dsa', {
 // or imperatively: reportProgress('system-design', {...})
 ```
 
+Module ids (`ModuleId`): `'dsa' | 'system-design' | 'kafka' | 'sql' | 'data-modeling'`.
+
+### Feeding the home "Today" plan
+
+Add `reviews` and `nextSteps` (both `PlanItem[]`, optional) to the same summary:
+
+```ts
+type PlanItem = {
+  label: string;           // 'Window functions: RANK vs DENSE_RANK'
+  path: string;            // deep link into your module
+  kind?: 'review' | 'learn' | 'practice' | 'challenge';
+  minutes?: number;        // estimate; defaults 5 / 15 / 20 / 25 by kind
+  detail?: string;         // one short line of context
+};
+
+useReportProgress('sql', {
+  completed, total, unit: 'concepts', dueForReview: due.length,
+  reviews: due.slice(0, 5).map((c) => ({ label: c.title, path: `/sql/review/${c.id}` })),
+  nextSteps: [{ label: 'Recursive CTEs', path: '/sql/learn/recursive-cte', kind: 'learn', minutes: 15 }],
+});
+```
+
+How Today is built (`src/app/today.ts`): due reviews first, round-robin across
+modules (interleaving, max 6). If `dueForReview` exceeds the listed `reviews`, a
+"N more reviews due" item links to `resume`. Then the first `nextSteps` item of each
+module (falling back to `resume`), least-progressed module first, plus a suggestion to
+start an untouched module (max 3). Keep the list short and send only the most useful
+items. Users can tick items off for the day (`lp:app:activity`, which also tracks the
+day streak).
+
 Spaced repetition helpers: `newCard()`, `review(card, grade 0..3)`, `isDue(card)` —
 store `ReviewCard`s in your own store.
 
 Export / Import / Reset of every `lp:*` key is handled by the Settings page
 (`exportProgress`, `importProgress`, `resetProgress(namespace?)`, `listStorageKeys`).
-Keep all module state JSON-serialisable so it round-trips.
+Keep all module state JSON-serialisable so it round-trips. The Settings reset buttons
+are generated from the registry in `src/app/modules.tsx`.
+
+## Real SQL in the browser — PGlite
+
+`@electric-sql/pglite` (Postgres compiled to WASM) is installed and configured in
+`vite.config.ts` (`optimizeDeps.exclude`, `worker.format: 'es'`).
+
+```ts
+import { PGlite } from '@electric-sql/pglite';
+const db = new PGlite();                       // in-memory; ~1.5–2 s cold start
+const { rows, fields } = await db.query('select 41 + 1 as answer');
+await db.exec('create table t(id int); insert into t values (1),(2);');
+```
+
+Create **one** instance lazily (module-level promise) and reuse it; load it only inside
+the module that needs it so other routes stay light. `EXPLAIN (FORMAT JSON)` works for
+query-plan visuals. Build warnings about `eval` in PGlite are expected.

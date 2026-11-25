@@ -7,15 +7,17 @@ import {
   resetProgress,
   type ProgressNamespace,
 } from '@/shared/progress';
-import { Button, Callout, Card, CardHeader, Tag } from '@/shared/ui';
+import { Button, Callout, Card, CardHeader, Tag, type Tone } from '@/shared/ui';
+import { allModules } from '../modules';
 
 type Status = { tone: 'ok' | 'bad'; text: string } | null;
 
 const resetTargets: { ns?: ProgressNamespace; label: string; hint: string }[] = [
-  { ns: 'dsa', label: 'Reset DSA progress', hint: 'lp:dsa:*' },
-  { ns: 'sd', label: 'Reset System Design progress', hint: 'lp:sd:*' },
-  { ns: undefined, label: 'Reset everything', hint: 'lp:* (incl. theme & home summaries)' },
+  ...allModules.map((m) => ({ ns: m.namespace, label: `Reset ${m.short}`, hint: `lp:${m.namespace}:*` })),
+  { ns: undefined, label: 'Reset everything', hint: 'lp:* (incl. theme, streak & home summaries)' },
 ];
+
+const nsTone: Partial<Record<string, Tone>> = { dsa: 'info', sd: 'violet', kafka: 'warn', sql: 'ok', dm: 'accent' };
 
 function bytes(n: number) {
   return n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`;
@@ -134,7 +136,7 @@ export default function SettingsPage() {
           {keys.length === 0 && <li className="px-4 py-3 text-sm text-muted">Nothing saved yet.</li>}
           {keys.map((k) => (
             <li key={k} className="flex items-center gap-3 px-4 py-2.5 font-mono text-xs">
-              <Tag tone={k.startsWith('lp:dsa:') ? 'info' : k.startsWith('lp:sd:') ? 'violet' : 'neutral'}>
+              <Tag tone={nsTone[k.split(':')[1]] ?? 'neutral'}>
                 {k.split(':')[1]}
               </Tag>
               <span className="flex-1 truncate">{k}</span>

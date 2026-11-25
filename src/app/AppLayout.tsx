@@ -1,14 +1,24 @@
+import { useEffect } from 'react';
 import { NavLink, Outlet, Link } from 'react-router-dom';
 import { Settings } from 'lucide-react';
 import { cn } from '@/shared/cn';
 import { ThemeToggle } from '@/shared/ui';
 import { tracks } from './modules';
+import { useActivity } from './today';
 
 /**
  * Header is fixed at h-14 (3.5rem). Full-height module views can use
  * `h-[calc(100vh-var(--header-h))]`.
  */
 export function AppLayout() {
+  const touch = useActivity((s) => s.touch);
+  useEffect(() => {
+    touch();
+    const onFocus = () => touch();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [touch]);
+
   return (
     <div className="flex min-h-screen flex-col [--header-h:3.5rem]">
       <header className="sticky top-0 z-40 h-14 border-b border-line/70 bg-paper/95 backdrop-blur">
