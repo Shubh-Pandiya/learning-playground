@@ -26,6 +26,10 @@ export interface InsideProgress {
   seen?: boolean;
   assembled?: boolean;
   lab?: boolean;
+  /** Read the deep guide to the end. */
+  guide?: boolean;
+  /** Attempted the SDE-3 interview questions. */
+  interview?: boolean;
 }
 
 export type DrillType = 'review' | 'incident' | 'adr';

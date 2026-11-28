@@ -11,6 +11,9 @@ export const LABS: Record<LabId, LazyExoticComponent<ComponentType>> = {
   bloom: lazy(() => import('./BloomLab')),
   breaker: lazy(() => import('./BreakerLab')),
   queue: lazy(() => import('./QueueLab')),
+  gateway: lazy(() => import('./GatewayLab')),
+  discovery: lazy(() => import('./DiscoveryLab')),
+  partition: lazy(() => import('./PartitionLab')),
 };
 
 export const LAB_TITLE: Record<LabId, string> = {
@@ -23,4 +26,7 @@ export const LAB_TITLE: Record<LabId, string> = {
   bloom: 'Bloom filter',
   breaker: 'Circuit breaker & retries',
   queue: 'Queues, backlog & DLQ',
+  gateway: 'Gateway filter-chain ordering',
+  discovery: 'Discovery staleness: dead-instance window',
+  partition: 'Registry under partition: AP vs CP',
 };

@@ -199,7 +199,8 @@ export const ENTRY_INTERNALS: Internals[] = [
       { q: 'How does the gateway validate a JWT without calling the auth server each time?', a: 'It caches the issuer’s public keys from the JWKS endpoint and verifies the signature, `exp`, `iss` and `aud` locally in microseconds. Because revocation then waits for expiry, tokens are short-lived and refreshed; high-risk actions can still do an introspection call.' },
       { q: 'API gateway vs load balancer vs service mesh?', a: 'An LB spreads traffic over replicas of one thing. A gateway is a smart L7 entry point for **north-south** traffic with API concerns (keys, quotas, versioning). A service mesh handles **east-west** service-to-service traffic with sidecars (mTLS, retries). Envoy can play all three roles.' },
     ],
-    lab: 'ratelimit',
+    lab: 'gateway',
+    moreLabs: ['ratelimit'],
   },
 
   // ───────────────────────────── RATE LIMITER ─────────────────────────────

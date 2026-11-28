@@ -1,6 +1,6 @@
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowUpRight, BookOpenCheck, Boxes, Cog, FlaskConical, MessageSquareQuote, Puzzle, Workflow } from 'lucide-react';
+import { ArrowUpRight, BookOpen, BookOpenCheck, Boxes, Cog, FlaskConical, ListChecks, MessageSquareQuote, Puzzle, Workflow } from 'lucide-react';
 import { cn } from '@/shared/cn';
 import { Callout, Tag } from '@/shared/ui';
 import { COMPONENTS } from '../data/components';
@@ -10,11 +10,15 @@ import { IsoGlyph } from '../ui/iso';
 import { Rich } from '../ui/Rich';
 import { Anatomy } from './Anatomy';
 import { Assemble } from './Assemble';
+import { DeepInterview } from './deep/DeepInterview';
+import { Guide, Takeaways } from './deep/Guide';
+import { hasDeep, useDeep } from './deep';
 import { getInternals } from './index';
 import { LAB_TITLE, LABS } from './labs';
 import type { Internals } from './types';
 
-type Tab = 'anatomy' | 'assemble' | 'design' | 'lab' | 'interview';
+export type InsideTab = 'guide' | 'anatomy' | 'assemble' | 'design' | 'lab' | 'interview' | 'recap';
+type Tab = InsideTab;
 
 function Design({ data }: { data: Internals }) {
   const [picked, setPicked] = useState<Record<number, number>>({});
@@ -105,11 +109,11 @@ function Design({ data }: { data: Internals }) {
   );
 }
 
-function Interview({ data }: { data: Internals }) {
+function Interview({ data, warmup }: { data: Internals; warmup?: boolean }) {
   const [open, setOpen] = useState<Record<number, boolean>>({});
   return (
     <div className="space-y-2.5">
-      <p className="text-[12.5px] text-muted">Answer out loud (or in your head) before revealing. Retrieval beats re-reading.</p>
+      <p className="text-[12.5px] text-muted">{warmup ? 'Warm-up questions (SDE-2 level).' : 'Answer out loud (or in your head) before revealing. Retrieval beats re-reading.'}</p>
       {data.interview.map((q, i) => (
         <div key={i} className="rounded-lg border border-line bg-surface p-3">
           <p className="font-mono text-[12.5px] font-semibold leading-snug">
@@ -131,12 +135,17 @@ function Interview({ data }: { data: Internals }) {
 }
 
 /** "Inside" view: how a component is actually implemented — anatomy, assembly, design knobs, lab, interview. */
-export function InternalsView({ kind, initialTab = 'anatomy' }: { kind: ComponentKind; initialTab?: Tab }) {
+export function InternalsView({ kind, initialTab }: { kind: ComponentKind; initialTab?: Tab }) {
   const data = getInternals(kind);
   const def = COMPONENTS[kind];
   const prog = useSd((s) => s.inside[kind]);
   const mark = useSd((s) => s.markInside);
-  const [tab, setTab] = useState<Tab>(initialTab);
+  const deep = useDeep(kind);
+  const [tab, setTab] = useState<Tab>(initialTab ?? (hasDeep(kind) ? 'guide' : 'anatomy'));
+  const labs = data?.lab ? [data.lab, ...(data.moreLabs ?? [])] : [];
+  const [labIdx, setLabIdx] = useState(0);
+  const onReadAll = useCallback(() => mark(kind, 'guide'), [kind, mark]);
+  const onAttempted = useCallback(() => mark(kind, 'interview'), [kind, mark]);
 
   useEffect(() => {
     if (data) mark(kind, 'seen');
@@ -153,13 +162,17 @@ export function InternalsView({ kind, initialTab = 'anatomy' }: { kind: Componen
     );
 
   const tabs: { id: Tab; label: string; icon: typeof Boxes; done?: boolean }[] = [
+    ...(hasDeep(kind) ? [{ id: 'guide' as Tab, label: 'Guide', icon: BookOpen, done: prog?.guide }] : []),
     { id: 'anatomy', label: 'Anatomy', icon: Workflow, done: prog?.seen },
     { id: 'assemble', label: 'Assemble', icon: Puzzle, done: prog?.assembled },
     { id: 'design', label: 'Design', icon: Cog },
     ...(data.lab ? [{ id: 'lab' as Tab, label: 'Lab', icon: FlaskConical, done: prog?.lab }] : []),
-    { id: 'interview', label: 'Interview', icon: MessageSquareQuote },
+    { id: 'interview', label: 'Interview', icon: MessageSquareQuote, done: prog?.interview },
+    ...(hasDeep(kind) ? [{ id: 'recap' as Tab, label: 'Recap', icon: ListChecks }] : []),
   ];
-  const Lab = data.lab ? LABS[data.lab] : null;
+  const labId = labs[Math.min(labIdx, labs.length - 1)];
+  const Lab = labId ? LABS[labId] : null;
+  const loading = <div className="p-6 text-center font-mono text-[12px] text-faint">loading…</div>;
 
   return (
     <div className="space-y-3">
@@ -172,7 +185,7 @@ export function InternalsView({ kind, initialTab = 'anatomy' }: { kind: Componen
         </div>
         {data.lab && (
           <Tag size="sm" tone="violet">
-            lab: {LAB_TITLE[data.lab]}
+            {labs.length > 1 ? `${labs.length} labs` : `lab: ${LAB_TITLE[data.lab]}`}
           </Tag>
         )}
       </div>
@@ -183,7 +196,7 @@ export function InternalsView({ kind, initialTab = 'anatomy' }: { kind: Componen
           <ArrowUpRight size={14} className="text-violet" />
         </Link>
       )}
-      <div className="flex gap-1 border-b border-line">
+      <div className="flex gap-1 overflow-x-auto border-b border-line">
         {tabs.map((t) => (
           <button
             key={t.id}
@@ -199,15 +212,65 @@ export function InternalsView({ kind, initialTab = 'anatomy' }: { kind: Componen
           </button>
         ))}
       </div>
+      {tab === 'guide' && (deep ? <Guide d={deep} onReadAll={onReadAll} /> : loading)}
       {tab === 'anatomy' && <Anatomy data={data} />}
       {tab === 'assemble' && <Assemble key={kind} data={data} onSolved={() => mark(kind, 'assembled')} />}
       {tab === 'design' && <Design data={data} />}
       {tab === 'lab' && Lab && (
-        <Suspense fallback={<div className="p-6 text-center font-mono text-[12px] text-faint">loading lab…</div>}>
-          <Lab />
-        </Suspense>
+        <div className="space-y-2">
+          {labs.length > 1 && (
+            <div className="flex flex-wrap gap-1">
+              {labs.map((l, i) => (
+                <button
+                  key={l}
+                  onClick={() => setLabIdx(i)}
+                  className={cn('rounded-md border px-2 py-0.5 font-mono text-[11px]', l === labId ? 'border-violet bg-violet/10 text-ink' : 'border-line text-muted hover:border-violet/50')}
+                >
+                  {LAB_TITLE[l]}
+                </button>
+              ))}
+            </div>
+          )}
+          <Suspense fallback={loading}>
+            <Lab key={labId} />
+          </Suspense>
+        </div>
       )}
-      {tab === 'interview' && <Interview data={data} />}
+      {tab === 'interview' &&
+        (deep ? (
+          <div className="space-y-5">
+            <DeepInterview d={deep} onAttempted={onAttempted} />
+            <Interview data={data} warmup />
+          </div>
+        ) : deep === undefined ? (
+          loading
+        ) : (
+          <Interview data={data} />
+        ))}
+      {tab === 'recap' &&
+        (deep ? (
+          <div className="space-y-3">
+            <Takeaways items={deep.takeaways} />
+            <div className="rounded-lg border border-line bg-surface p-3">
+              <div className="eyebrow mb-1.5">Self-check · can you answer each in 60 seconds?</div>
+              <ol className="space-y-1">
+                {deep.interview.map((q, i) => (
+                  <li key={i} className="flex gap-2 text-[12.5px] leading-snug">
+                    <span className="font-mono text-[11px] text-faint">{i + 1}.</span>
+                    <span>
+                      <Rich text={q.q} />
+                    </span>
+                  </li>
+                ))}
+              </ol>
+              <button onClick={() => setTab('interview')} className="mt-2 font-mono text-[11px] text-accent hover:underline">
+                practise them in the Interview tab →
+              </button>
+            </div>
+          </div>
+        ) : (
+          loading
+        ))}
     </div>
   );
 }

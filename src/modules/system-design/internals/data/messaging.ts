@@ -430,6 +430,8 @@ export const MESSAGING_INTERNALS: Internals[] = [
       { q: 'Client-side vs server-side discovery?', a: 'Client-side: the caller fetches healthy instances and load-balances (fewer hops, smarter algorithms, but needs a library per language). Server-side: callers hit a stable name/VIP and a proxy or kube-proxy picks the instance (simple, polyglot, one extra hop). Service meshes push the list into a sidecar, combining both.' },
       { q: 'What happens to traffic if the registry goes down?', a: 'With caching, nothing immediately: clients and proxies keep the last known endpoints. You lose the ability to register new instances or remove dead ones, so staleness grows. That is why the registry runs as a 3/5-node quorum and why clients must retry on connection errors.' },
     ],
+    lab: 'discovery',
+    moreLabs: ['partition'],
   },
 
   // ───────────────────────────── coordinator ─────────────────────────────
