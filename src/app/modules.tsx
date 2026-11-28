@@ -68,6 +68,19 @@ export const tracks: TrackDef[] = [
         Component: lazy(() => import('@/modules/system-design')),
       },
       {
+        id: 'java-spring',
+        path: '/java-spring',
+        namespace: 'java',
+        title: 'Java & Spring Boot',
+        short: 'Java / Spring',
+        blurb:
+          'Trace JVM memory, thread interleavings, bean lifecycles and transaction boundaries. Predict outcomes, reconstruct mechanisms and diagnose production incidents, then retain the theory with spaced recall.',
+        icon: <Boxes size={20} />,
+        unit: 'concepts',
+        highlights: ['mechanism traces', 'incident diagnosis', 'spaced theory recall'],
+        Component: lazy(() => import('@/modules/java-spring')),
+      },
+      {
         id: 'kafka',
         path: '/kafka',
         namespace: 'kafka',

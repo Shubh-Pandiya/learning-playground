@@ -2,9 +2,9 @@ import { useEffect } from 'react';
 import { createPersistedStore } from './persist';
 
 /** Modules that report progress to the home page. Each owns routes at `/<id>/*`. */
-export type ModuleId = 'dsa' | 'system-design' | 'kafka' | 'sql' | 'data-modeling' | 'de-system-design';
+export type ModuleId = 'dsa' | 'system-design' | 'kafka' | 'sql' | 'data-modeling' | 'de-system-design' | 'java-spring';
 
-export const MODULE_IDS: readonly ModuleId[] = ['dsa', 'system-design', 'kafka', 'sql', 'data-modeling', 'de-system-design'];
+export const MODULE_IDS: readonly ModuleId[] = ['dsa', 'system-design', 'kafka', 'sql', 'data-modeling', 'de-system-design', 'java-spring'];
 
 /** One actionable entry for the home page's cross-module "Today" plan. */
 export interface PlanItem {
