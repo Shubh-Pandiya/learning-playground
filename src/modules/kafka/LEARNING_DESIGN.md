@@ -16,7 +16,7 @@ Everything runs on a deterministic model of a Kafka cluster (`engine/`). Every i
 | Home | `/kafka` | Lesson path with L/B/C pips, mastery, prediction and chaos calibration, resume |
 | Lessons (10) | `/kafka/l/:id/{learn,build,challenge,recap}` | Worked → faded → transfer, then retrieval and interview practice |
 | Lab | `/kafka/lab` | Free drag-and-drop build with templates, live impact narration, chaos |
-| Internals (9) | `/kafka/internals[/:id]` | Frame-by-frame animated deep dives into how Kafka is built |
+| Internals (13) | `/kafka/internals[/:id]` | Frame-by-frame animated deep dives into how Kafka is built |
 | Drills | `/kafka/drills[/:kind/:id]` | Incidents on the live simulator, capacity math, config review, trade-offs |
 | Compare | `/kafka/compare` | Kafka vs RabbitMQ / SQS / Kinesis / Pulsar, a picker, and when not to use Kafka |
 | Review | `/kafka/review` | SM-2 spaced, interleaved recall of quizzes and predictions |
@@ -44,7 +44,8 @@ Everything runs on a deterministic model of a Kafka cluster (`engine/`). Every i
 5. **Mechanism first: how it's actually built.**
    - Every component has a "How it's built" tab: internals, tradeoffs, pitfall, used by.
    - Every knob has a `how` that explains the broker or client machinery.
-   - Nine deep dives cover: zero-copy and the page cache; segments and sparse indexes; partitioners; replication with HW/LEO/ISR and unclean election; idempotent producers (PID, epoch, sequence); transactions and EOS (coordinator, markers, LSO); the rebalance protocol (eager vs cooperative, static membership); KRaft vs ZooKeeper; compaction.
+   - Thirteen deep dives cover: zero-copy and the page cache; segments and sparse indexes; partitioners; replication with HW/LEO/ISR and unclean election; idempotent producers (PID, epoch, sequence); transactions and EOS (coordinator, markers, LSO); the rebalance protocol (eager vs cooperative, static membership); KRaft vs ZooKeeper; compaction; producer internals (accumulator, linger, in-flight, buffer.memory); offset commits and delivery semantics; retention and tiered storage (KIP-405); Kafka Streams state stores (RocksDB, changelogs, standbys).
+   - SDE-3 layer, on each dive's final page: numbers to know, tradeoff tables, two real-world incidents (symptom first; cause, fix and lesson revealed on demand) and 5–7 interview Q&As. Each answer comes with follow-up probes and the senior signal, so you rehearse the second and third question, not just the first.
 6. **Red flags as feedback** (error-based learning).
    - `engine/check.ts` and the model flag real production mistakes and give a fix. Examples: idle consumers beyond the partition count, acks=1 with RF=1, random keys breaking order, min.insync = RF, no DLQ, auto-commit with async processing, unclean election.
    - Info-level tips are folded away so warnings stay salient.

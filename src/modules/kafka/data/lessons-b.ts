@@ -151,7 +151,7 @@ export const L6: Lesson = {
     { q: 'How do you achieve exactly-once processing with Kafka?', a: 'Inside Kafka: idempotent + transactional producer, sendOffsetsToTransaction, read_committed consumers (Streams exactly_once_v2). To external systems: at-least-once delivery with idempotent writes (upsert on event id, idempotency keys), or store the offset in the same DB transaction as the result and seek to it on restart.' },
     { q: 'How does the idempotent producer work?', a: 'On init the producer gets a producer id and epoch. Each batch per partition carries a sequence number. The leader stores the last 5 batch sequences per PID and rejects duplicates (returns success) and out-of-order gaps (OutOfOrderSequence). This allows max.in.flight ≤ 5 while preserving order.' },
   ],
-  deepDives: ['idempotence', 'transactions'],
+  deepDives: ['idempotence', 'transactions', 'offsets'],
 };
 
 /* ================================================================== */
@@ -312,7 +312,7 @@ export const L7: Lesson = {
     { q: 'How do you handle poison messages in Kafka?', a: 'Catch deserialization (ErrorHandlingDeserializer) and processing errors; classify transient vs permanent; publish to retry topics with backoff headers and commit; after N attempts send to a DLQ with error metadata; alert on DLQ depth; provide redrive. Consider ordering: park the key if later events depend on earlier ones.' },
     { q: 'Kafka vs SQS for a job queue?', a: 'SQS has per-message visibility timeouts, redrive policies and no partition limit on concurrency, which is great for independent jobs. Kafka gives ordering, replay and high throughput, but failure handling and per-record parallelism are your job (or share groups in Kafka 4.0).' },
   ],
-  deepDives: ['rebalance'],
+  deepDives: ['offsets', 'rebalance'],
 };
 
 /* ================================================================== */
@@ -456,7 +456,7 @@ export const L8: Lesson = {
     { q: 'When would you use log compaction?', a: 'When consumers need the latest state per key rather than full history: changelogs for state stores, CDC tables, config/feature flags, user profiles, `__consumer_offsets`. Not for event sourcing (you need every event) or when keys are unique.' },
     { q: 'How does Kafka delete old data?', a: 'Per partition the log is split into segments. A background task deletes closed segments older than retention.ms or beyond retention.bytes (delete policy), or the log cleaner rewrites segments keeping the latest per key (compact). Never per record, and never the active segment.' },
   ],
-  deepDives: ['log', 'compaction'],
+  deepDives: ['compaction', 'tiered', 'log'],
 };
 
 /* ================================================================== */
@@ -747,7 +747,7 @@ export const L10: Lesson = {
     { q: 'How does Kafka Streams achieve fault-tolerant state?', a: 'Each task’s state store (RocksDB) logs every update to a compacted changelog topic. On failover, the new owner replays the changelog (or uses a standby replica). With exactly_once_v2, store updates, outputs and offsets commit atomically.' },
     { q: 'How do you evolve event schemas safely?', a: 'Schema registry with Avro/Protobuf, compatibility mode BACKWARD (or FULL), only add optional fields with defaults, never reuse or rename fields, upgrade consumers before producers, and for breaking changes publish to a new topic version with a migration period.' },
   ],
-  deepDives: ['transactions', 'kraft'],
+  deepDives: ['streams', 'transactions', 'kraft'],
 };
 
 

@@ -3,6 +3,8 @@
  * small declarative visual (rendered by ui/DiveViz) plus an optional predict-before-reveal.
  */
 import type { Predict } from './lesson';
+import { DEEP } from './deep';
+import { MORE_DIVES } from './internals-more';
 
 export type Viz =
   | { kind: 'path'; title?: string; stages: { label: string; sub?: string; hot?: boolean; skip?: boolean }[]; copies?: number; note?: string }
@@ -31,10 +33,43 @@ export interface Dive {
   oneLiner: string;
   frames: Frame[];
   design: { decision: string; because: string }[];
-  interview: { q: string; a: string }[];
+  interview: Interview[];
+  /** SDE-3 depth: defaults and magnitudes worth knowing by heart. */
+  numbers?: { k: string; v: string; why?: string }[];
+  tradeoffs?: Tradeoff[];
+  incidents?: Incident[];
 }
 
-export const DIVES: Dive[] = [
+export interface Interview {
+  q: string;
+  a: string;
+  /** Follow-ups an interviewer uses to find the edge of your understanding. */
+  probes?: string[];
+  /** What separates a senior answer from a correct one. */
+  senior?: string;
+}
+
+export interface Tradeoff {
+  title: string;
+  cols: string[];
+  rows: string[][];
+}
+
+export interface Incident {
+  title: string;
+  symptom: string;
+  cause: string;
+  fix: string;
+  lesson: string;
+}
+
+export type DeepExtra = Pick<Dive, 'numbers' | 'tradeoffs' | 'incidents'> & {
+  interview?: Interview[];
+  /** Probes and senior signal for the dive's original questions, by index. */
+  base?: Pick<Interview, 'probes' | 'senior'>[];
+};
+
+const BASE: Dive[] = [
   /* -------------------------------------------------------------- */
   {
     id: 'fast',
@@ -471,5 +506,14 @@ export const DIVES: Dive[] = [
     ],
   },
 ];
+
+const ORDER = ['fast', 'log', 'producer', 'partitioner', 'idempotence', 'replication', 'transactions', 'rebalance', 'offsets', 'kraft', 'compaction', 'tiered', 'streams'];
+
+export const DIVES: Dive[] = [...BASE, ...MORE_DIVES].sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id)).map((d) => {
+  const x = DEEP[d.id];
+  if (!x) return d;
+  const { base, interview, ...rest } = x;
+  return { ...d, ...rest, interview: [...d.interview.map((q, i) => ({ ...q, ...base?.[i] })), ...(interview ?? [])] };
+});
 
 export const diveById = (id: string | undefined) => DIVES.find((d) => d.id === id);

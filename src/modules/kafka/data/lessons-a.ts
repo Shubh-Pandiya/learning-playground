@@ -358,7 +358,7 @@ export const L2: Lesson = {
     { q: 'Walk me through what happens when a Kafka leader dies.', a: 'The controller (KRaft quorum) notices the broker’s heartbeats stopped, fences it, and picks a new leader from the ISR for each partition it led. It bumps the leader epoch and propagates metadata. Producers and consumers get NOT_LEADER errors, refresh metadata and retry against the new leader. With acks=all + min.insync=2 no acked data is lost. With acks=1, records only on the old leader are lost.' },
     { q: 'Trade-off between durability and availability in Kafka?', a: 'min.insync.replicas and unclean.leader.election. A high min.insync blocks writes when replicas are down (consistency). Unclean election lets an out-of-sync replica lead (availability, with data loss). Business data: RF=3, min.insync=2, unclean off. Metrics/logs: can relax.' },
   ],
-  deepDives: ['replication', 'kraft'],
+  deepDives: ['replication', 'producer', 'kraft'],
 };
 
 /* ================================================================== */
@@ -506,7 +506,7 @@ export const L3: Lesson = {
     { q: 'How would you tune a Kafka producer for throughput?', a: 'linger.ms 10–50 and batch.size 64–256 KB for bigger batches; compression zstd or lz4; keep acks=all + idempotence (the cost is small with big batches); max.in.flight 5; enough buffer.memory. Measure batch-size-avg, record-queue-time and request-rate. Then size brokers by MB/s × RF.' },
     { q: 'Why is Kafka fast?', a: 'Sequential appends to the page cache, batching end to end (producer batch = stored batch = fetched batch), zero-copy sendfile from page cache to socket, compression of whole batches, and partitions that scale horizontally. No per-message acks or random disk seeks.' },
   ],
-  deepDives: ['fast', 'log'],
+  deepDives: ['producer', 'fast', 'log'],
 };
 
 /* ================================================================== */
@@ -660,7 +660,7 @@ export const L4: Lesson = {
     { q: 'Consumer lag keeps growing. How do you debug it?', a: '1) Lag on all partitions or one? One means a hot key or a stuck/poison record. 2) Are consumers CPU-bound, or waiting on I/O (DB, API)? Check processing time and sink latency. 3) Idle members means the partition wall, so add partitions. 4) Rebalance logs: are members flapping (max.poll.interval, GC)? 5) Then fix the bottleneck: batch writes, parallelize I/O, add partitions and consumers, or shed/prioritize.' },
     { q: 'More consumers than partitions?', a: 'Extras are idle, though useful as fast failover. To go beyond, add partitions (planned, since keys remap), or process concurrently within a partition while preserving per-key order (parallel consumer), or use share groups.' },
   ],
-  deepDives: ['rebalance', 'fast'],
+  deepDives: ['offsets', 'rebalance', 'fast'],
 };
 
 /* ================================================================== */

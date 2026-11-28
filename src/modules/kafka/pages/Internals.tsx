@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Check, CheckCircle2, Clock, Cpu, Lock, Target, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2, Clock, Cpu, Hash, Lock, MessageSquare, Scale, Target, XCircle } from 'lucide-react';
 import { cn } from '@/shared/cn';
 import { Button } from '@/shared/ui';
 import { DIVES, diveById } from '../data/internals';
@@ -36,7 +36,7 @@ export function InternalsHome() {
                   <h3 className="mt-2 font-mono text-[14px] font-semibold">{d.title}</h3>
                   <p className="mt-1 flex-1 text-[12.5px] text-muted">{d.tagline}</p>
                   <div className="mt-3 flex items-center justify-between text-[11px] text-faint">
-                    <span>{d.frames.length} frames · {d.frames.filter((f) => f.predict).length} predictions</span>
+                    <span>{d.frames.length} frames · {d.frames.filter((f) => f.predict).length} predictions · {d.interview.length} Q&amp;A</span>
                     {usedIn.length > 0 && <span>Lesson {usedIn.map((l) => l.n).join(', ')}</span>}
                   </div>
                   {st && !st.done && st.frame > 0 && (
@@ -183,7 +183,7 @@ export function DivePage() {
                     }
                   }}
                 >
-                  {waiting ? 'Predict first' : i < dive.frames.length - 1 ? 'Next frame' : 'Design decisions & interview'} <ArrowRight size={13} className="ml-1" />
+                  {waiting ? 'Predict first' : i < dive.frames.length - 1 ? 'Next frame' : 'Design, numbers, failures & interview'} <ArrowRight size={13} className="ml-1" />
                 </Button>
               </div>
             </>
@@ -206,8 +206,83 @@ export function DivePage() {
                   ))}
                 </div>
               </div>
+              {dive.numbers && (
+                <div>
+                  <div className="eyebrow mb-2 flex items-center gap-1">
+                    <Hash size={11} /> Numbers to know
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {dive.numbers.map((n, k) => (
+                      <div key={k} className="rounded-xl border border-line bg-surface px-3 py-2">
+                        <div className="font-mono text-[11px] text-faint">{n.k}</div>
+                        <div className="font-mono text-[13px] font-semibold text-ink">{n.v}</div>
+                        {n.why && <div className="mt-0.5 text-[11.5px] leading-snug text-muted">{n.why}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {dive.tradeoffs?.map((t, k) => (
+                <div key={k}>
+                  <div className="eyebrow mb-2 flex items-center gap-1">
+                    <Scale size={11} /> Tradeoffs · {t.title}
+                  </div>
+                  <div className="overflow-x-auto rounded-xl border border-line bg-surface">
+                    <table className="w-full text-left text-[12px]">
+                      <thead>
+                        <tr className="border-b border-line bg-ink/[0.03]">
+                          {t.cols.map((c) => (
+                            <th key={c} className="px-3 py-2 font-mono text-[11px] font-medium uppercase tracking-wide text-faint">
+                              {c}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {t.rows.map((r, ri) => (
+                          <tr key={ri} className="border-b border-line/60 last:border-0">
+                            {r.map((c, ci) => (
+                              <td key={ci} className={cn('px-3 py-2 align-top leading-snug', ci === 0 ? 'font-mono font-medium text-ink' : 'text-muted')}>
+                                {c}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+              {dive.incidents && (
+                <div>
+                  <div className="eyebrow mb-2 flex items-center gap-1">
+                    <AlertTriangle size={11} /> Real-world failures · diagnose before you read the cause
+                  </div>
+                  <div className="space-y-2">
+                    {dive.incidents.map((x, k) => (
+                      <details key={k} className="group rounded-xl border border-line bg-surface p-3">
+                        <summary className="cursor-pointer list-none">
+                          <div className="text-[13px] font-semibold">{x.title}</div>
+                          <div className="mt-0.5 text-[12.5px] text-muted">
+                            <span className="font-medium text-bad">Symptom: </span>
+                            {x.symptom}
+                          </div>
+                          <div className="mt-1 text-[11.5px] text-muted group-open:hidden">What would you check first? Click to reveal the cause →</div>
+                        </summary>
+                        <div className="mt-2 space-y-1 text-[12.5px] leading-relaxed">
+                          <p><span className="font-medium">Cause: </span><Rich text={x.cause} /></p>
+                          <p><span className="font-medium text-ok">Fix: </span><Rich text={x.fix} /></p>
+                          <p className="rounded-lg bg-violet/5 px-2 py-1 text-violet"><span className="font-medium">Lesson: </span>{x.lesson}</p>
+                        </div>
+                      </details>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div>
-                <div className="eyebrow mb-2">Interview · answer out loud, then compare</div>
+                <div className="eyebrow mb-2 flex items-center gap-1">
+                  <MessageSquare size={11} /> Interview · {dive.interview.length} questions · answer out loud, then compare
+                </div>
                 <div className="space-y-2">
                   {dive.interview.map((q, k) => (
                     <div key={k} className="rounded-xl border border-line bg-surface p-3">
@@ -215,9 +290,29 @@ export function DivePage() {
                         <Rich text={q.q} />
                       </p>
                       {shown[k] ? (
-                        <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
-                          <Rich text={q.a} />
-                        </p>
+                        <>
+                          <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
+                            <Rich text={q.a} />
+                          </p>
+                          {q.probes && q.probes.length > 0 && (
+                            <div className="mt-2 rounded-lg border border-line/70 px-2.5 py-1.5">
+                              <div className="eyebrow text-[10px]">Follow-up probes</div>
+                              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[12px] text-ink/85">
+                                {q.probes.map((pr, pk) => (
+                                  <li key={pk}>
+                                    <Rich text={pr} />
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {q.senior && (
+                            <div className="mt-2 rounded-lg bg-ok/10 px-2.5 py-1.5 text-[12px] leading-relaxed">
+                              <span className="font-semibold text-ok">Senior signal: </span>
+                              <Rich text={q.senior} />
+                            </div>
+                          )}
+                        </>
                       ) : (
                         <Button size="xs" variant="secondary" className="mt-2" onClick={() => setShown((s) => ({ ...s, [k]: true }))}>
                           Reveal a strong answer
