@@ -25,7 +25,35 @@ A pattern counts as **mastered** once its Challenge is solved.
 | **Incident drill** | `/system-design/practice/incident/:id` | On-call page with a live broken system. Answer triage → root cause → mitigate → prevent, then read the postmortem, a real-world parallel, and recover. | Case-based, deliberate practice |
 | **ADR-lite** | `/system-design/practice/adr/:id` | Choose an option and write Decision / Because / We accept / Revisit when, then compare with the expert ADR. Considerations are keyword-detected, with self-ticking for half credit. | Self-explanation, metacognition |
 
-Labs (`internals/labs/*`) are small, deterministic simulations: change an algorithm or config and watch the effect. They cover LB algorithms with health-check and drain, cache eviction (LRU/LFU/FIFO/TTL), rate-limit algorithms, B-tree vs LSM, consistent-hash ring with vnodes, bloom filter, inverted index, circuit breaker, and queue backlog with autoscaling.
+Labs (`internals/labs/*`) are small, deterministic simulations: change an algorithm or config and watch the effect. They cover the gateway filter chain, discovery staleness, registry partitions, LB algorithms with health-check and drain, cache eviction (LRU/LFU/FIFO/TTL), rate-limit algorithms, B-tree vs LSM, consistent-hash ring with vnodes, bloom filter, inverted index, circuit breaker, and queue backlog with autoscaling.
+
+## SDE-3 depth: the Guide tab
+
+Each of the 47 components has a lazy-loaded deep guide (`internals/deep/data/<kind>.ts`) on its **Guide** tab, the first tab under *Inside*. It has a sticky table of contents, collapsible deep dives and a key-takeaways recap. Every guide covers the same 10 sections, and `files/val/validate-deep.ts` enforces them:
+
+1. **Problem and first principles:** why it exists, what breaks without it, and where it sits in the request path.
+2. **Architecture:** the building blocks with diagrams, and how real systems are built (Envoy, Kong, Eureka/Consul/etcd, Redis, Postgres/RocksDB, …).
+3. **Request lifecycle:** a step-by-step walk-through with a latency budget per stage.
+4. **Algorithms and protocols:** the mechanisms in detail.
+5. **Scaling and HA.**
+6. **Failure modes and war stories:** detection signals and mitigations.
+7. **Numbers:** a predict-then-reveal capacity-math drill.
+8. **Comparison table:** alternatives, plus *when not to use it*.
+9. **Interview:** 5–8 SDE-3 questions, each with a model answer, the follow-up probes an interviewer would ask, and the **senior signal** (what separates an SDE-3 answer from an SDE-2 one).
+10. **Labs.**
+
+There are three labs for the components users found thinnest:
+
+- **Gateway filter chain:** drag filters into order and watch latency, auth cost and rejections change. Wrong orders (e.g. rate-limit before auth, or retry before the circuit breaker) are explained.
+- **Discovery staleness:** kill an instance under Eureka, Kubernetes, DNS or a service mesh, and watch heartbeat, lease, cache and TTL turn into a stale window and failed requests. Mitigate with preStop hooks, retries and outlier ejection.
+- **Partition:** compare Eureka self-preservation (AP) with Consul and ZooKeeper/etcd losing quorum (CP).
+
+The judgment drills reuse this depth. The new ones are a gateway design review (`rev-api-gateway-edge`) and a Eureka self-preservation incident (`inc-eureka-self-preservation`).
+
+Why this design:
+- **Expertise reversal** (Kalyuga): an SDE-2 learns more from mechanisms, failure modes and tradeoffs than from definitions, so the depth sits up front and the basics are collapsible.
+- **Follow-up probes** rehearse the "and then what?" questioning that distinguishes senior interviews.
+- **Consistent structure** builds a schema: the same 10 questions get asked of every new component.
 
 ## Principles applied
 
@@ -59,6 +87,6 @@ Labs (`internals/labs/*`) are small, deterministic simulations: change an algori
 - `engine/simulate.ts` is a napkin-math flow model. It routes read/write traffic through the graph and computes QPS, p99, errors, availability/SPOFs, durability, consistency and cost.
 - `engine/evaluate.ts` checks the requirements, scores closeness to the reference, and generates node/edge verdicts and hints.
 - `engine/diff.ts` diffs two evaluations into a change-log entry. `ui/ChangeLog.tsx` renders it.
-- `internals/` holds the per-component internals content (`data/*.ts`, typed by `internals/types.ts`), the views (`Anatomy`, `Assemble`, `InternalsView`) and the labs.
+- `internals/` holds the per-component internals content (`data/*.ts`, typed by `internals/types.ts`), the views (`Anatomy`, `Assemble`, `InternalsView`) and the labs. `internals/deep/` holds the SDE-3 guides (`data/<kind>.ts`, one lazy chunk per component) and their UI (`Guide`, `Diagram`, `DeepInterview`).
 - `judgment/` holds review, incident and ADR cases (`data/*.ts`) and the drill pages are in `pages/{Practice,DesignReview,Incident,Adr}.tsx`.
 - `store.ts` handles progress (including internals seen, assembled and lab, drill best scores and ADR drafts), saved canvases and spaced-repetition cards, persisted in localStorage under `lp:sd:progress`.

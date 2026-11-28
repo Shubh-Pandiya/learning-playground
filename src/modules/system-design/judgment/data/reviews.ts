@@ -556,4 +556,81 @@ export const REVIEWS: ReviewCase[] = [
     takeaway:
       'Autoscaling assumes interchangeable, stateless pods; anything stateful (files, sessions, singleton jobs) must move out first, and every shared resource behind the tier (DB connections) must be checked at maximum scale, not current scale.',
   },
+  /* ------------------------------------------------------------------ */
+  {
+    id: 'rev-api-gateway-edge',
+    title: 'One gateway to rule them all: a mobile edge in review',
+    context:
+      'A consumer app (mobile + web) sends 30,000 req/s at peak (85% reads) through a self-hosted API gateway to ~40 services. The platform team proudly put everything in the gateway: OAuth2 token introspection on every call, a global per-user rate limit in one Redis, a "home screen" plugin that calls five services and merges the JSON, and automatic retries ×3 for any 5xx. It runs as a single large instance because "it is just a proxy". About 10% of traffic is scrapers and buggy clients.',
+    workload: { qps: 30000, readRatio: 0.85, abusive: 0.1 },
+    level: 'Advanced',
+    patterns: ['api-gateway', 'rate-limiting', 'circuit-breaker', 'service-discovery'],
+    graph: {
+      nodes: [
+        { id: 'client', kind: 'client', label: 'Mobile + web', x: 0, y: 140 },
+        { id: 'nlb', kind: 'lb', label: 'NLB (L4)', count: 2, x: 190, y: 140 },
+        { id: 'gw', kind: 'api-gateway', label: 'Gateway (1 big instance)', x: 380, y: 140 },
+        { id: 'auth', kind: 'service', label: 'Auth server (introspect)', count: 2, x: 570, y: 0 },
+        { id: 'rl', kind: 'rate-limiter', label: 'Global limit: Redis ×1, sync', x: 570, y: 100 },
+        { id: 'agg', kind: 'app', label: 'Home-screen merge plugin', x: 570, y: 210 },
+        { id: 'retry', kind: 'naive-retry', label: 'Retry ×3 on any 5xx', x: 570, y: 320 },
+        { id: 'catalog', kind: 'service', label: 'Catalog / feed / profile…', count: 6, x: 760, y: 210 },
+        { id: 'orders', kind: 'service', label: 'Orders (POST /orders)', count: 4, x: 760, y: 320 },
+      ],
+      edges: [
+        { from: 'client', to: 'nlb' },
+        { from: 'nlb', to: 'gw' },
+        { from: 'gw', to: 'auth' },
+        { from: 'gw', to: 'rl' },
+        { from: 'gw', to: 'agg' },
+        { from: 'agg', to: 'catalog' },
+        { from: 'gw', to: 'retry' },
+        { from: 'retry', to: 'orders' },
+      ],
+    },
+    flaws: [
+      {
+        target: 'gw',
+        kind: 'spof',
+        title: 'A single gateway instance in front of 40 services',
+        why: 'Every request crosses it, so one OOM, bad plugin deploy, kernel upgrade or AZ loss is a full outage. A single big box also cannot be canaried: every config change hits 100% of traffic at once.',
+        fix: 'Run ≥2 small, stateless instances per AZ behind the NLB (N+1 per AZ), autoscale on CPU/connections, roll config and binaries per instance with canaries, and keep last-known-good config if the control plane is down.',
+      },
+      {
+        target: 'gw->auth',
+        kind: 'latency',
+        title: 'OAuth2 introspection on every request',
+        why: '30k rps of introspection turns the auth server into a tier-0 hot-path dependency: +2–10 ms per call, and an auth slowdown becomes a site-wide outage. You also pay the network hop for requests that will be rate-limited anyway.',
+        fix: 'Issue short-lived signed JWTs and verify them locally (cached JWKS, refresh on unknown `kid`, check `exp`/`aud`/`iss`). Keep introspection only for opaque or high-risk tokens, with a short positive cache.',
+      },
+      {
+        target: 'rl',
+        kind: 'spof',
+        title: 'Global quota on one Redis, checked synchronously',
+        why: 'Every request waits for a Redis round trip (~0.5–1 ms, worse at p99), one node caps throughput, and when it fails the gateway either fails closed (outage) or silently stops limiting. Abusive traffic also costs a Redis op before being dropped.',
+        fix: 'Cheap per-IP limits locally first, then per-user quotas with local token buckets synced to a sharded Redis/Envoy RLS asynchronously (hybrid). Decide the failure policy per route explicitly (usually fail-open with a local fallback limit).',
+      },
+      {
+        target: 'agg',
+        kind: 'coupling',
+        title: 'Business logic (home-screen aggregation) inside the gateway',
+        why: 'The platform team now owns product logic and every mobile release needs a gateway change. One slow downstream holds gateway workers for every route, and fan-out of 5 multiplies the gateway’s outbound load.',
+        fix: 'Move aggregation into a BFF service owned by the mobile team (or a GraphQL layer), with its own deadlines, partial-response handling and scaling. Keep the gateway thin: auth, limits, routing, observability.',
+      },
+      {
+        target: 'retry->orders',
+        kind: 'consistency',
+        title: 'Blind retries ×3 on POST /orders',
+        why: 'A timeout after the order was written gets retried, which creates duplicate orders and double charges. During an Orders brownout the retries quadruple its load (retry storm), turning a slowdown into an outage.',
+        fix: 'Retry only idempotent methods, or POSTs that carry an `Idempotency-Key` the service deduplicates. Use a retry budget (≤10% extra), exponential backoff with jitter, deadline propagation, and per-upstream circuit breakers / outlier ejection.',
+      },
+    ],
+    fine: {
+      nlb: 'An L4 NLB in front of the gateway is the standard shape: it is cheap, connection-level and highly available, and it lets you scale the gateway fleet behind it.',
+      catalog: 'Many small services behind a gateway are fine; the problem is what the gateway does on their behalf.',
+      orders: 'Orders itself is fine. Its risk comes from how the gateway calls it.',
+    },
+    takeaway:
+      'A gateway should be a thin, horizontally scaled, boring piece of infrastructure: verify identity locally, reject cheaply, route, observe. Every remote call or line of business logic you add to it becomes a dependency of every request.',
+  },
 ];

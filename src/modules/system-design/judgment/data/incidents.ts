@@ -810,4 +810,105 @@ export const INCIDENTS: IncidentCase[] = [
     realWorld:
       'Cloudflare, July 2 2019: a WAF rule with a regex that backtracked catastrophically was deployed globally at once, exhausting CPU on every edge machine and causing ~27 minutes of 502s worldwide.',
   },
+  /* ------------------------------------------------------------------ */
+  {
+    id: 'inc-eureka-self-preservation',
+    title: 'The AZ died. The registry kept advertising it.',
+    severity: 'SEV2',
+    alert: '🟠 PAGE: order placement errors 31% · orders p99 2.4s (SLO 500ms)',
+    context:
+      'Spring Boot services discover each other through Eureka (3 peered servers, one per AZ) with Spring Cloud LoadBalancer on the client side. Orders (3,000 req/s) calls Payments, which runs 9 instances over 3 AZs. Clients use the defaults: 30s heartbeat, 90s lease, 30s registry fetch, 2s connect timeout, no retry on another instance. At 14:02 AZ-c loses power: its 3 Payments instances vanish without closing connections.',
+    workload: { qps: 3000, readRatio: 0.8 },
+    patterns: ['service-discovery', 'load-balancing', 'circuit-breaker'],
+    graph: {
+      nodes: [
+        { id: 'client', kind: 'client', label: 'Shoppers', x: 0, y: 140 },
+        { id: 'gw', kind: 'api-gateway', count: 2, x: 190, y: 140 },
+        { id: 'orders', kind: 'service', label: 'Orders', count: 6, x: 380, y: 140 },
+        { id: 'registry', kind: 'registry', label: 'Eureka ×3 (self-preservation: not evicting)', count: 3, x: 380, y: 320 },
+        { id: 'pay', kind: 'service', label: 'Payments (3 in dead AZ-c)', count: 9, x: 570, y: 140 },
+        { id: 'db', kind: 'db', label: 'Payments DB', x: 760, y: 140 },
+      ],
+      edges: [
+        { from: 'client', to: 'gw' },
+        { from: 'gw', to: 'orders' },
+        { from: 'orders', to: 'pay' },
+        { from: 'pay', to: 'registry' },
+        { from: 'pay', to: 'db' },
+      ],
+    },
+    inject: { down: [{ node: 'pay', count: 3 }] },
+    timeline: [
+      { t: '14:02', event: 'AZ-c power loss: 3 of 9 Payments instances (and 1 Eureka peer) gone. No TCP RST, packets just vanish.' },
+      { t: '14:03', event: 'Renewals drop to ~66% of expected, below the 85% threshold. Eureka logs "EMERGENCY! EUREKA MAY BE INCORRECTLY CLAIMING INSTANCES ARE UP WHEN THEY’RE NOT" and stops evicting.' },
+      { t: '14:04', event: '1 in 3 payment calls waits 2s for a connect timeout and fails. Orders threads pile up.' },
+      { t: '14:12', event: 'You are paged. The Eureka dashboard still shows Payments: 9 UP.' },
+    ],
+    signals: [
+      { label: 'Order placement errors', value: '31%', tone: 'bad' },
+      { label: 'Orders → payments connect timeouts', value: '~33% of calls', tone: 'bad' },
+      { label: 'Eureka: Payments instances UP', value: '9 / 9', tone: 'warn' },
+      { label: 'Eureka renews (last min) / threshold', value: '1,080 / 1,377', tone: 'warn' },
+      { label: 'Payments CPU (AZ-a, AZ-b)', value: '48%', tone: 'ok' },
+      { label: 'Payments DB', value: 'healthy', tone: 'ok' },
+    ],
+    stages: [
+      {
+        title: 'Triage',
+        question: 'The registry says 9/9 Payments instances are UP, but a third of calls time out on connect. What is the most likely explanation?',
+        options: [
+          'Payments has a bug that makes a third of requests hang',
+          'The registry is in self-preservation: it stopped evicting, so the dead AZ-c instances are still advertised and clients keep picking them',
+          'The Payments DB is overloaded',
+          'The gateway is dropping a third of requests',
+        ],
+        answer: 1,
+        explain:
+          '**Connect** timeouts (not 5xx) on exactly ~1/3 of calls while survivors run at normal CPU means callers are dialing addresses that no longer exist. The Eureka EMERGENCY banner and renews below threshold confirm it: the registry is deliberately refusing to evict.',
+      },
+      {
+        title: 'Root cause',
+        question: 'Self-preservation did exactly what it was designed to do. What actually made this an outage?',
+        options: [
+          'Running Eureka instead of ZooKeeper',
+          'Too few Payments instances',
+          'An AP registry hands correctness to the client, but the clients had no defence: a 2s connect timeout, no retry on another instance, no outlier ejection, and no zone awareness',
+          'The heartbeat interval was too long',
+        ],
+        answer: 2,
+        explain:
+          'Self-preservation cannot tell "an AZ died" from "the registry lost the network", so it chooses to keep stale entries rather than mass-evict healthy ones. That is a sound AP choice **only** if callers tolerate stale endpoints. Shorter heartbeats would just shrink the window, and a CP registry would have its own failure mode (mass deregistration on a registry-side blip).',
+      },
+      {
+        title: 'Mitigate now',
+        question: 'Best immediate action?',
+        options: [
+          'Restart all Eureka servers to clear the registry',
+          'Disable self-preservation cluster-wide right now',
+          'Take the AZ-c instances out explicitly (set them OUT_OF_SERVICE or DELETE them via the Eureka REST API, or let an AZ-health automation do it) and shed AZ-c at the gateway; clients drop them on their next fetch',
+          'Double the connect timeout so calls have time to succeed',
+        ],
+        answer: 2,
+        explain:
+          'You know which instances are dead, so tell the registry. Clients drop them within one fetch plus cache cycle (≤~60s). Restarting Eureka makes every client re-fetch an empty or partial registry while instances re-register (a self-inflicted outage). Disabling self-preservation in the middle of an incident risks evicting healthy instances if renewals are also flaky. A longer timeout just makes each failure slower.',
+      },
+      {
+        title: 'Prevent',
+        question: 'What is the right follow-up?',
+        options: [
+          'Lower lease expiry to 10s everywhere',
+          'Client-side resilience: ~200ms connect timeout, retry idempotent calls (or calls with idempotency keys) on a different instance, passive outlier ejection / per-instance breakers, and zone-aware routing; plus an alert on sustained self-preservation and lifecycle hooks that deregister instances when an AZ or ASG removes them',
+          'Replace Eureka with DNS round robin',
+          'Add more Eureka servers',
+        ],
+        answer: 1,
+        explain:
+          'Very short leases cause false evictions on every GC pause or network blip. DNS has even longer staleness (TTL plus client caches). More servers do not change the semantics. The durable fix is to make callers tolerant of stale endpoints, shrink the window with explicit deregistration, and alert when the registry stops evicting.',
+      },
+    ],
+    lesson:
+      'Every discovery system has a staleness window: detection plus propagation plus caches. AP registries keep it open on purpose during partitions, and CP registries close it by refusing to answer or by deleting everything they cannot hear. Neither is safe without defensive callers: fast connect timeouts, retry on another instance, outlier ejection and zone awareness. Alert on the registry’s own safety modes; they are signals, not noise.',
+    realWorld:
+      'Netflix built Eureka AP with self-preservation precisely so that a registry-side network problem would not deregister a healthy fleet, and paired it with client-side retries and zone affinity in Ribbon. The tradeoff is the window shown here. Knewton’s 2014 essay "Eureka! Why You Shouldn’t Use ZooKeeper for Service Discovery" makes the same AP-vs-CP argument from the other side.',
+  },
 ];
