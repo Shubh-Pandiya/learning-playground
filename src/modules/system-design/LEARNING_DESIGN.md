@@ -44,7 +44,7 @@ Each of the 47 components has a lazy-loaded deep guide (`internals/deep/data/<ki
 
 There are three labs for the components users found thinnest:
 
-- **Gateway filter chain:** drag filters into order and watch latency, auth cost and rejections change. Wrong orders (e.g. rate-limit before auth, or retry before the circuit breaker) are explained.
+- **Gateway filter chain:** drag filters into order and watch latency, auth cost, rejections and leaks change. A coarse per-IP limit belongs *before* AuthN because it needs no identity and sheds floods cheaply. A per-user quota needs a verified identity, so it belongs after AuthN. A cache holding protected responses must sit after both AuthN and AuthZ: before AuthZ, a valid token with the wrong scope or tenant gets a cached 200 it should never see (an authorization bypass). A toggle lets you switch to a public-only cache, which can legitimately sit ahead of auth. The pure model and its checks are in `internals/labs/gatewayModel{,.check}.ts`.
 - **Discovery staleness:** kill an instance under Eureka, Kubernetes, DNS or a service mesh, and watch heartbeat, lease, cache and TTL turn into a stale window and failed requests. Mitigate with preStop hooks, retries and outlier ejection.
 - **Partition:** compare Eureka self-preservation (AP) with Consul and ZooKeeper/etcd losing quorum (CP).
 
